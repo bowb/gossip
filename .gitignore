@@ -25,6 +25,8 @@ cmake-build-debug/
 bin/build
 bin/test
 
+# vscode
+*.vscode
 
 # Compiler intermediate files
 .o

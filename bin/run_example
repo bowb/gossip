@@ -25,7 +25,7 @@ done
 
 for port in ${PORTS}; do
     OUT="/tmp/detector_${port}.log"
-    ./bin/gossip_detector_example ${DEBUG} --port=${port} \
+    ./gossip_detector_example ${DEBUG} --port=${port} \
             --http --http-port=$((${port} - 1000)) \
             --seeds=${SEEDS} >$OUT  2>&1 &
     echo "[INFO] Started Detector on port ${port}; logs in ${OUT}"

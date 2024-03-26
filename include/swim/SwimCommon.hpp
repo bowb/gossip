@@ -1,7 +1,6 @@
 // Copyright (c) 2017 AlertAvert.com. All rights reserved.
 // Created by M. Massenzio (marco@alertavert.com) on 4/10/17.
 
-
 #pragma once
 
 #include <chrono>
@@ -12,76 +11,78 @@
 
 #include "swim.pb.h"
 
-
 using std::set;
 using namespace std::chrono;
 using Timestamp = system_clock::time_point;
+using namespace std::chrono_literals;
 
 namespace swim {
 
 ////  Mark: Constants
 
 /** Default TCP port for Gossip Protocol */
-const unsigned int kDefaultPort = 30395;
+const unsigned short kDefaultPort = 30395;
 
-/** Default Grace period the Gossip detector waits before declaring a `suspect` host to be `dead` */
-const unsigned int kDefaultGracePeriodSec = 35;
+/** Default Grace period the Gossip detector waits before declaring a `suspect`
+ * host to be `dead` */
+const long kDefaultGracePeriodSec = 35;
 
 /** Default interval between pings to neighbors */
 const unsigned int kDefaultPingIntervalSec = 5;
 
 /** Default timeout for all clients connecting to servers */
-const unsigned long kDefaultTimeoutMsec = 25;
+const std::chrono::milliseconds kDefaultTimeoutMsec = 25ms;
 
 /** Default interval between polling, when waiting for incoming requests. */
-const unsigned long kDefaultPollingIntervalMsec = 50;
+const long kDefaultPollingIntervalMsec = 50;
 
 /**
- * Required to keep ZMQ happy and remove unnecessary sockets "lingering" after communication is
- * closed.
+ * Required to keep ZMQ happy and remove unnecessary sockets "lingering" after
+ * communication is closed.
  */
-const unsigned int kDefaultSocketLingerMsec = 0;
+const int kDefaultSocketLingerMsec = 0;
 
 /** Scales the slope of the quadratic cost function. */
 const static double kTimeDecayConstant = 0.01;
 
-/** Reporting budget, currently set to cutoff at around 2 minutes, with constant messages. */
+/** Reporting budget, currently set to cutoff at around 2 minutes, with constant
+ * messages. */
 const static double kTimeDecayBudget = 300.0;
 
 //// Constants end.
 
-
-inline ::google::protobuf::uint64 TimestampToFixed64(const Timestamp &timestamp) {
+inline ::google::protobuf::uint64
+TimestampToFixed64(const Timestamp &timestamp) {
   return std::chrono::system_clock::to_time_t(timestamp);
 }
 
 /**
- * Thrown when the set from which the caller is trying to obtain an element is empty.
+ * Thrown when the set from which the caller is trying to obtain an element is
+ * empty.
  */
 struct empty_set : public std::exception {
-  virtual const char* what() { return "empty set"; };
+  virtual const char *what() { return "empty set"; };
 };
 
 extern std::default_random_engine random_engine;
 
 /**
- * An alias for the lock guards used to protect the "alive" and "suspected" RecordSet sets.
+ * An alias for the lock guards used to protect the "alive" and "suspected"
+ * RecordSet sets.
  */
 using mutex_guard = std::lock_guard<std::mutex>;
-
 
 /**
  * Creates a Protobuf representation of the given hostname:port server.
  *
  * @param hostname the server's name, if known (or its IP address).
  * @param port the listening port
- * @param ip the IP address (optional, may be useful if the name is not DNS-resolvable)
+ * @param ip the IP address (optional, may be useful if the name is not
+ * DNS-resolvable)
  * @return the PB representation of this server
  */
-inline std::unique_ptr<Server> MakeServer(
-    const std::string &hostname,
-    int port,
-    const std::string &ip = "") {
+inline std::unique_ptr<Server> MakeServer(const std::string &hostname, int port,
+                                          const std::string &ip = "") {
 
   std::unique_ptr<Server> server(new Server());
   server->set_hostname(hostname);
@@ -93,10 +94,9 @@ inline std::unique_ptr<Server> MakeServer(
   return server;
 }
 
-
-inline std::unique_ptr<ServerRecord> MakeRecord(
-    const Server &server,
-    const Timestamp &timestamp = std::chrono::system_clock::now()) {
+inline std::unique_ptr<ServerRecord>
+MakeRecord(const Server &server,
+           const Timestamp &timestamp = std::chrono::system_clock::now()) {
 
   std::unique_ptr<ServerRecord> record(new ServerRecord());
   Server *psvr = record->mutable_server();
@@ -109,65 +109,62 @@ inline std::unique_ptr<ServerRecord> MakeRecord(
   return record;
 }
 
-
-bool operator<(const Server& lhs, const Server& rhs);
+bool operator<(const Server &lhs, const Server &rhs);
 
 /**
- * Ordering operator for server records, uses the `hostname`  as a total ordering
- * criterion.  For servers on the same host (IP), the port number is used; the timestamp is
- * not used as a sorting criterion.
+ * Ordering operator for server records, uses the `hostname`  as a total
+ * ordering criterion.  For servers on the same host (IP), the port number is
+ * used; the timestamp is not used as a sorting criterion.
  *
- * <p>The sorting by hostname is done solely lexicographically, no meaning is assigned
- * to the either the name or the IP address (if present); it is simply a means to allow us to store
- * `ServerRecord` objects into a `set`.
+ * <p>The sorting by hostname is done solely lexicographically, no meaning is
+ * assigned to the either the name or the IP address (if present); it is simply
+ * a means to allow us to store `ServerRecord` objects into a `set`.
  *
  * @param lhs the left-hand side ServerRecord for the comparison
  * @param rhs the right-hand side of the comparison
- * @return whether `lhs` is less than `rhs`, according to a lexicographic ordering of their
- *      respective `ServerRecord#server()`
+ * @return whether `lhs` is less than `rhs`, according to a lexicographic
+ * ordering of their respective `ServerRecord#server()`
  */
-bool operator<(const ServerRecord& lhs, const ServerRecord& rhs);
-
+bool operator<(const ServerRecord &lhs, const ServerRecord &rhs);
 
 /**
- * Equality operator for servers; we assume we are talking to the same server if it has the same
- * hostname and the same port.  The IP address is not used.
+ * Equality operator for servers; we assume we are talking to the same server if
+ * it has the same hostname and the same port.  The IP address is not used.
  *
  * @param lhs the left-hand operand
  * @param rhs the right-hand operand
  * @return `true` if both `hostname` and `port` match
  */
-bool operator==(const Server& lhs, const Server& rhs);
+bool operator==(const Server &lhs, const Server &rhs);
 
 /**
- * Without this, associative containers (such as `set`) would compare the value of the pointers
- * (as opposed to the actual value of the records) for insertion and/or retrieval.
+ * Without this, associative containers (such as `set`) would compare the value
+ * of the pointers (as opposed to the actual value of the records) for insertion
+ * and/or retrieval.
  *
  * <p>See Item 20 of "Effective STL", Scott Meyers.
  */
-struct ServerRecordPtrLess :
-    public std::binary_function<
-        const std::shared_ptr<ServerRecord> &,
-        const std::shared_ptr<ServerRecord> &,
-        bool> {
+struct ServerRecordPtrLess
+    : public std::binary_function<const std::shared_ptr<ServerRecord> &,
+                                  const std::shared_ptr<ServerRecord> &, bool> {
 
   /**
-   * Comparison operator for the "less than" predicate (associative containers semantics) for
-   * containers of pointers.
+   * Comparison operator for the "less than" predicate (associative containers
+   * semantics) for containers of pointers.
    *
    * @param lhs the left-hand side of the operation
    * @param rhs the right-hand side of the operation
-   * @return whether the record pointed to by `lhs` is "less than" the one pointed to by `rhs`
+   * @return whether the record pointed to by `lhs` is "less than" the one
+   * pointed to by `rhs`
    */
   bool operator()(const std::shared_ptr<ServerRecord> &lhs,
-                  const std::shared_ptr<ServerRecord> &rhs) {
+                  const std::shared_ptr<ServerRecord> &rhs) const {
     return *lhs < *rhs;
   }
 };
 
-
-typedef set<std::shared_ptr<ServerRecord>, ServerRecordPtrLess> ServerRecordsSet;
-
+typedef set<std::shared_ptr<ServerRecord>, ServerRecordPtrLess>
+    ServerRecordsSet;
 
 inline std::ostream &operator<<(std::ostream &out, const Server &server) {
   out << "'" << server.hostname() << ":" << server.port() << "'";
@@ -178,7 +175,8 @@ inline std::ostream &operator<<(std::ostream &out, const Server &server) {
   return out;
 }
 
-inline std::ostream &operator<<(std::ostream &out, const std::shared_ptr<Server> &ps) {
+inline std::ostream &operator<<(std::ostream &out,
+                                const std::shared_ptr<Server> &ps) {
   out << (*ps);
   return out;
 }
@@ -186,8 +184,8 @@ inline std::ostream &operator<<(std::ostream &out, const std::shared_ptr<Server>
 inline std::ostream &operator<<(std::ostream &out, const ServerRecord &record) {
   long ts = record.timestamp();
 
-  out << "[" << record.server() << " at: "
-      << std::put_time(std::gmtime(&ts), "%c %Z");
+  out << "[" << record.server()
+      << " at: " << std::put_time(std::gmtime(&ts), "%c %Z");
 
   if (record.has_forwarder()) {
     out << "; forwarded by: " << record.forwarder();
@@ -197,7 +195,8 @@ inline std::ostream &operator<<(std::ostream &out, const ServerRecord &record) {
   return out;
 }
 
-inline std::ostream& operator<<(std::ostream& out, const ServerRecordsSet& recordsSet) {
+inline std::ostream &operator<<(std::ostream &out,
+                                const ServerRecordsSet &recordsSet) {
   out << "{ ";
   for (auto record : recordsSet) {
     out << *record << ", ";
@@ -212,7 +211,8 @@ inline std::ostream& operator<<(std::ostream& out, const ServerRecordsSet& recor
 
 inline std::ostream &operator<<(std::ostream &out, const SwimReport &report) {
   out << "Report from: " << report.sender();
-  out << "\n=================================\nHealthy servers\n--------------------------\n";
+  out << "\n=================================\nHealthy "
+         "servers\n--------------------------\n";
   for (auto healthy : report.alive()) {
     out << healthy << std::endl;
   }

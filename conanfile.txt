@@ -4,32 +4,28 @@
 # See the README for more information or http://conan.io
 
 [requires]
-cryptopp/5.6.5@bincrafters/stable
-glog/0.4.0@bincrafters/stable
-gtest/1.8.0@bincrafters/stable
-protobuf/3.9.1@bincrafters/stable
-
-cppzmq/4.6.0
-openssl/1.1.1d
-zeromq/4.3.2
+cryptopp/8.9.0
+glog/0.7.0
+gtest/1.14.0
+protobuf/3.21.12
+cppzmq/4.10.0
+openssl/3.2.1
+zeromq/4.3.5
+boost/1.84.0
+libuv/1.48.0
+http_parser/2.9.4
 
 [options]
 glog:with_gflags=False
 gtest:shared=False
-zeromq:shared=True
-Protobuf:shared=True
-
-[imports]
-#
-# Copies all shared libraries (*.so, *.dylib) files from packages lib
-# folder to the "lib" folder, and headers to "include".
-#
-# This is useful for the `install` step to move them to $INSTALL_DIR
-# if defined.
-#
-lib, *.dylib* -> ./lib
-lib, *.so* -> ./lib
-include, * -> ./include
+zeromq:shared=False
+Protobuf:shared=False
+openssl:shared=False
+# just used in testing
+libuv:shared=True
+http_parser:shared=True
 
 [generators]
 cmake
+cmake_find_package
+cmake_paths

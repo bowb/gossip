@@ -1,7 +1,7 @@
 // Copyright (c) 2017 AlertAvert.com. All rights reserved.
 // Created by M. Massenzio (marco@alertavert.com) on 7/23/17.
 
-
+#include <chrono>
 #include <memory>
 #include <thread>
 
@@ -11,33 +11,33 @@
 #include <SimpleHttpRequest.hpp>
 #include <google/protobuf/util/json_util.h>
 
-#include "swim/SwimClient.hpp"
-#include "swim/GossipFailureDetector.hpp"
-#include "apiserver/api/rest/ApiServer.hpp"
+#include <api/rest/ApiServer.hpp>
+#include <swim/GossipFailureDetector.hpp>
+#include <swim/SwimClient.hpp>
 
 #include "tests.h"
 
 using namespace swim;
 using namespace std::chrono;
 using namespace google::protobuf::util;
-
+namespace http = api::rest::http;
 
 class IntegrationTests : public ::testing::Test {
 protected:
   std::shared_ptr<GossipFailureDetector> detector;
 
   void SetUp() override {
-    // The intervals, timeouts etc. configured here are just for convenience's sake:
-    // if a test requires different timings, just stop the threads, change the values, then
-    // restart the background threads:
+    // The intervals, timeouts etc. configured here are just for convenience's
+    // sake: if a test requires different timings, just stop the threads, change
+    // the values, then restart the background threads:
     //
     // detector
     detector.reset(new GossipFailureDetector(
         ::tests::RandomPort(),
-        1,  // time between reports
-        2,  // grace period, dictates length of tests, must not be too long.
-        20  // ping timeout, in milliseconds: can be really short.
-    ));
+        1,   // time between reports
+        2,   // grace period, dictates length of tests, must not be too long.
+        20ms // ping timeout, in milliseconds: can be really short.
+        ));
 
     // Wait for the Gossip Detector to start.
     int retries = 5;
@@ -50,9 +50,9 @@ protected:
 
   void TearDown() override {
     const_cast<SwimServer &>(detector->gossip_server()).stop();
-    ASSERT_TRUE(::tests::WaitAtMostFor([this]() -> bool {
-      return !detector->gossip_server().isRunning();
-    }, milliseconds(500)));
+    ASSERT_TRUE(::tests::WaitAtMostFor(
+        [this]() -> bool { return !detector->gossip_server().isRunning(); },
+        milliseconds(500)));
   }
 
   const SwimServer &server() { return detector->gossip_server(); }
@@ -60,13 +60,15 @@ protected:
 
 TEST_F(IntegrationTests, detectFailingNeighbor) {
 
-  auto neighbor = std::unique_ptr<SwimServer>(new SwimServer(::tests::RandomPort()));
+  auto neighbor =
+      std::unique_ptr<SwimServer>(new SwimServer(::tests::RandomPort()));
   std::thread neighbor_thread([&neighbor]() { neighbor->start(); });
 
   detector->AddNeighbor(neighbor->self());
   EXPECT_EQ(1, server().alive_size());
 
-// Give other background threads a chance to do work, and verify the neighbor is still alive.
+  // Give other background threads a chance to do work, and verify the neighbor
+  // is still alive.
   std::this_thread::sleep_for(seconds(2));
   EXPECT_EQ(1, server().alive_size());
 
@@ -74,18 +76,18 @@ TEST_F(IntegrationTests, detectFailingNeighbor) {
   EXPECT_FALSE(neighbor->isRunning());
   neighbor_thread.join();
 
-// Wait long enough for the stopped server to be suspected, but not evicted.
+  // Wait long enough for the stopped server to be suspected, but not evicted.
   std::this_thread::sleep_for(seconds(2));
   EXPECT_EQ(1, server().suspected_size());
 
-// Now, wait long enough for the stopped server to be evicted.
+  // Now, wait long enough for the stopped server to be evicted.
   std::this_thread::sleep_for(seconds(3));
   EXPECT_TRUE(server().suspected_empty());
 }
 
 TEST_F(IntegrationTests, gossipSpreads) {
-  // For this test to work, we need the grace period to be long enough for the neighbor to pick
-  // this up.
+  // For this test to work, we need the grace period to be long enough for the
+  // neighbor to pick this up.
   detector->StopAllBackgroundThreads();
 
   detector->set_grace_period(seconds(3));
@@ -93,48 +95,52 @@ TEST_F(IntegrationTests, gossipSpreads) {
   ASSERT_TRUE(detector->gossip_server().isRunning());
   detector->InitAllBackgroundThreads();
 
-  auto neighbor = std::unique_ptr<SwimServer>(new SwimServer(::tests::RandomPort()));
+  auto neighbor =
+      std::unique_ptr<SwimServer>(new SwimServer(::tests::RandomPort()));
   std::thread neighbor_thread([&]() { neighbor->start(); });
 
-  auto flaky = std::unique_ptr<SwimServer>(new SwimServer(::tests::RandomPort()));
+  auto flaky =
+      std::unique_ptr<SwimServer>(new SwimServer(::tests::RandomPort()));
   std::thread flaky_thread([&]() { flaky->start(); });
 
-  ASSERT_TRUE(::tests::WaitAtMostFor([&]() -> bool {
-    return neighbor->isRunning() && flaky->isRunning();
-  }, milliseconds(500)));
+  ASSERT_TRUE(::tests::WaitAtMostFor(
+      [&]() -> bool { return neighbor->isRunning() && flaky->isRunning(); },
+      milliseconds(500)));
 
   detector->AddNeighbor(neighbor->self());
   detector->AddNeighbor(flaky->self());
 
   // Verify that the happy news about flaky has traveled to the neighbor
   // within a reasonable time frame (see the paper in the README References
-  // for a mathematical derivation of a rigorous upper bound: this one it sure ain't).
-  ASSERT_TRUE(::tests::WaitAtMostFor([&neighbor]() -> bool {
-    // TODO: this needs to change to == 2 once we fix didGossip (see #149950890)
-    // Until then, this test is flaky, as the value depends on whether `neighbor` gets pinged
-    // first or `flaky` does.
-    return neighbor->alive_size() >= 1;
-  }, milliseconds(6000))
-  ) << "Failed to register new 'flaky' neighbor before timeout";
+  // for a mathematical derivation of a rigorous upper bound: this one it sure
+  // ain't).
+  ASSERT_TRUE(::tests::WaitAtMostFor(
+      [&neighbor]() -> bool {
+        // TODO: this needs to change to == 2 once we fix didGossip (see
+        // #149950890) Until then, this test is flaky, as the value depends on
+        // whether `neighbor` gets pinged first or `flaky` does.
+        return neighbor->alive_size() >= 1;
+      },
+      milliseconds(6000)))
+      << "Failed to register new 'flaky' neighbor before timeout";
 
   flaky->stop();
-  ASSERT_TRUE(::tests::WaitAtMostFor([&flaky]() -> bool {
-    return !flaky->isRunning();
-  }, milliseconds(200))
-  );
+  ASSERT_TRUE(::tests::WaitAtMostFor(
+      [&flaky]() -> bool { return !flaky->isRunning(); }, milliseconds(200)));
   flaky_thread.join();
 
   // Give the detector enough time to ping and make reports.
   std::this_thread::sleep_for(seconds(2));
   ASSERT_EQ(1, server().suspected_size());
 
-  // It should now be suspected, but still the grace period should have not expired.
+  // It should now be suspected, but still the grace period should have not
+  // expired.
   std::this_thread::sleep_for(seconds(1));
   EXPECT_EQ(1, neighbor->suspected_size());
 
   neighbor->stop();
-  ASSERT_TRUE(::tests::WaitAtMostFor([&]() -> bool { return !neighbor->isRunning(); },
-                                     milliseconds(200)));
+  ASSERT_TRUE(::tests::WaitAtMostFor(
+      [&]() -> bool { return !neighbor->isRunning(); }, milliseconds(200)));
   neighbor_thread.join();
 
   // Give the detector enough time to evict all the now-gone servers.
@@ -150,9 +156,8 @@ TEST_F(IntegrationTests, canStopThreads) {
     std::thread neighbor_thread([&]() { neighbor->start(); });
     neighbor_thread.detach();
 
-    ASSERT_TRUE(::tests::WaitAtMostFor([&]() -> bool {
-      return neighbor->isRunning();
-    }, milliseconds(500)));
+    ASSERT_TRUE(::tests::WaitAtMostFor(
+        [&]() -> bool { return neighbor->isRunning(); }, milliseconds(500)));
 
     detector->AddNeighbor(neighbor->self());
     neighbors.push_back(std::unique_ptr<SwimServer>(neighbor));
@@ -161,8 +166,8 @@ TEST_F(IntegrationTests, canStopThreads) {
   std::this_thread::sleep_for(seconds(6));
   EXPECT_EQ(5, server().alive_size());
 
-  // Stopping the background threads will cause the alive/suspected to stay frozen where they are
-  // now.
+  // Stopping the background threads will cause the alive/suspected to stay
+  // frozen where they are now.
   detector->StopAllBackgroundThreads();
 
   for (const auto &server : neighbors) {
@@ -184,55 +189,61 @@ TEST_F(IntegrationTests, wrongApiServerEndpointReturnsNotFound) {
   std::shared_ptr<api::rest::ApiServer> server =
       std::make_shared<api::rest::ApiServer>(7999);
 
-  server->AddGet("test", [] (const api::rest::Request& request) {
-    auto response = api::rest::Response::ok();
-    response.set_body("OK");
+  server->addGet("test", [](const api::rest::request &request) {
+    api::rest::response response;
+    response.result(http::status::ok);
+    response.body() = "OK";
     return response;
   });
-  server->Start();
+  server->start();
 
   try {
     request::SimpleHttpRequest simpleClient;
     simpleClient.timeout = 2500;
 
     simpleClient.get("http://localhost:7999/not/valid/api")
-        .on("error", [](request::Error &&err) -> void {
-          FAIL() << "Could not connect to API Server: "
-                 << err.message;
-        }).on("response", [](request::Response &&res) -> void {
-          EXPECT_EQ(404, res.statusCode);
-          EXPECT_NE(std::string::npos, res.str().find("Unknown API endpoint")) << "Found "
-                    "instead: " << res.str();
-        }).end();
+        .on("error",
+            [](request::Error &&err) -> void {
+              FAIL() << "Could not connect to API Server: " << err.message;
+            })
+        .on("response",
+            [](request::Response &&res) -> void {
+              EXPECT_EQ(404, res.statusCode);
+              EXPECT_NE(std::string::npos,
+                        res.str().find("Unknown API endpoint"))
+                  << "Found "
+                     "instead: "
+                  << res.str();
+            })
+        .end();
   } catch (const std::exception &e) {
     FAIL() << e.what();
   }
 }
 
-
 TEST_F(IntegrationTests, reportsApiServer) {
   auto neighbor = std::make_unique<SwimServer>(::tests::RandomPort());
   std::thread neighbor_thread([&]() { neighbor->start(); });
 
-  ASSERT_TRUE(::tests::WaitAtMostFor([&]() -> bool {
-    return neighbor->isRunning();
-  }, milliseconds(500)));
+  ASSERT_TRUE(::tests::WaitAtMostFor(
+      [&]() -> bool { return neighbor->isRunning(); }, milliseconds(500)));
   detector->AddNeighbor(neighbor->self());
 
   std::shared_ptr<api::rest::ApiServer> server =
       std::make_shared<api::rest::ApiServer>(7999);
   ASSERT_NE(nullptr, server.get());
 
-  server->AddGet("report", [this] (const api::rest::Request& request) {
-    auto response = api::rest::Response::ok();
+  server->addGet("report", [this](const api::rest::request &request) {
+    api::rest::response response;
+    response.result(http::status::ok);
     auto report = detector->gossip_server().PrepareReport();
     std::string json_body;
 
     ::google::protobuf::util::MessageToJsonString(report, &json_body);
-    response.set_body(json_body);
+    response.body() = json_body;
     return response;
   });
-  server->Start();
+  server->start();
 
   // Verify that we can get an empty Report.
   request::SimpleHttpRequest simpleClient;
@@ -240,37 +251,41 @@ TEST_F(IntegrationTests, reportsApiServer) {
     simpleClient.setHeader("Accept", "application/json");
     simpleClient.timeout = 2500;
     simpleClient.get("http://localhost:7999/api/v1/report")
-        .on("error", [](request::Error &&err) {
-          FAIL() << "Could not connect to API Server: "
-                 << err.message;
-        }).on("response", [this, &neighbor](request::Response &&res) {
-          EXPECT_FALSE(res.str().empty());
-          SwimReport report;
-          auto status = JsonStringToMessage(res.str(), &report);
-          if (!status.ok()) {
-            FAIL() << "Cannot conver JSON (" << status.error_code()
-                   << "): " << status.error_message();
-          }
-          std::for_each(res.headers.begin(), res.headers.end(),
-                        [](std::pair<std::string, std::string> header) {
-                          LOG(INFO) << header.first << ": " << header.second;
-                        });
-          EXPECT_EQ("application/json", res.headers["content-type"]);
-          EXPECT_EQ(report.sender(), detector->gossip_server().self());
-          EXPECT_EQ(1, report.alive_size());
-          EXPECT_EQ(neighbor->self(), report.alive(0).server());
-        }).end();
+        .on("error",
+            [](request::Error &&err) {
+              FAIL() << "Could not connect to API Server: " << err.message;
+            })
+        .on("response",
+            [this, &neighbor](request::Response &&res) {
+              EXPECT_FALSE(res.str().empty());
+              SwimReport report;
+              auto status = JsonStringToMessage(res.str(), &report);
+              if (!status.ok()) {
+                FAIL() << "Cannot convert JSON (" << status.ToString() << ")";
+              }
+              std::for_each(res.headers.begin(), res.headers.end(),
+                            [](std::pair<std::string, std::string> header) {
+                              LOG(INFO)
+                                  << header.first << ": " << header.second;
+                            });
+              EXPECT_EQ("application/json", res.headers["content-type"]);
+              EXPECT_EQ(report.sender(), detector->gossip_server().self());
+              EXPECT_EQ(1, report.alive_size());
+              EXPECT_EQ(neighbor->self(), report.alive(0).server());
+            })
+        .end();
   } catch (const std::exception &e) {
     FAIL() << e.what();
   }
 
-  ASSERT_TRUE(::tests::WaitAtMostFor([&]() -> bool {
-    neighbor->stop();
-    neighbor_thread.join();
-    return true;
-  }, milliseconds(400)));
+  ASSERT_TRUE(::tests::WaitAtMostFor(
+      [&]() -> bool {
+        neighbor->stop();
+        neighbor_thread.join();
+        return true;
+      },
+      milliseconds(400)));
 }
-
 
 TEST_F(IntegrationTests, postApiServer) {
   auto neighbor = std::make_unique<SwimServer>(::tests::RandomPort());
@@ -282,9 +297,10 @@ TEST_F(IntegrationTests, postApiServer) {
   std::shared_ptr<api::rest::ApiServer> server =
       std::make_shared<api::rest::ApiServer>(7999);
 
-  server->AddPost("server", [this](const api::rest::Request &request) {
+  server->addPost("server", [this](const api::rest::request &request) {
     Server neighbor;
-    auto status = ::google::protobuf::util::JsonStringToMessage(request.body(), &neighbor);
+    auto status = ::google::protobuf::util::JsonStringToMessage(request.body(),
+                                                                &neighbor);
     if (status.ok()) {
       detector->AddNeighbor(neighbor);
       LOG(INFO) << "Added server " << neighbor;
@@ -292,16 +308,24 @@ TEST_F(IntegrationTests, postApiServer) {
       std::string body{"{ \"result\": \"added\", \"server\": "};
       std::string server;
       ::google::protobuf::util::MessageToJsonString(neighbor, &server);
-      auto response = api::rest::Response::created("/server/" + neighbor.hostname());
-      response.set_body(body + server + "}");
+      api::rest::response response;
+
+      response.set(http::field::content_type, "application/json");
+      response.result(http::status::created);
+      response.set(http::field::location, "/server/" + neighbor.hostname());
+      response.body() = body + server + "}";
       return response;
     }
 
     LOG(ERROR) << "Not valid JSON: " << request.body();
-    return api::rest::Response::bad_request("Not a valid JSON representation of a server: "
-                                                + request.body());
+    api::rest::response response;
+    response.result(http::status::bad_request);
+    response.set(http::field::content_type, "text/plain");
+    response.body() =
+        "Not a valid JSON representation of a server:" + request.body();
+    return response;
   });
-  server->Start();
+  server->start();
 
   // Verify that we can get an empty Report.
   request::SimpleHttpRequest simpleClient;
@@ -310,13 +334,16 @@ TEST_F(IntegrationTests, postApiServer) {
   try {
     simpleClient.setHeader("Content-Type", "application/json");
     simpleClient.post("http://localhost:7999/api/v1/server", jsonBody)
-        .on("error", [](request::Error &&err) {
-          FAIL() << "Could not connect to API Server: "
-                 << err.message;
-        }).on("response", [this, &neighbor](request::Response &&res) {
-          EXPECT_TRUE(res.good());
-          EXPECT_EQ(201, res.statusCode);
-        }).end();
+        .on("error",
+            [](request::Error &&err) {
+              FAIL() << "Could not connect to API Server: " << err.message;
+            })
+        .on("response",
+            [this, &neighbor](request::Response &&res) {
+              EXPECT_TRUE(res.good());
+              EXPECT_EQ(201, res.statusCode);
+            })
+        .end();
   } catch (const std::exception &e) {
     FAIL() << e.what();
   }
