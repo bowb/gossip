@@ -91,7 +91,7 @@ set(PROTO_GEN_DIR ${CMAKE_BINARY_DIR}/proto)
 # Configure a header file to pass settings into source code.
 configure_file(${SOURCE_DIR}/config.h.in ${CMAKE_BINARY_DIR}/include/version.h)
 
-find_package(Boost 1.80.0 REQUIRED COMPONENTS program_options system)
+find_package(Boost 1.84.0 REQUIRED COMPONENTS program_options system)
 find_package(glog 0.7.0 REQUIRED)
 find_package(ZeroMQ)
 find_package(cppzmq)
