@@ -64,7 +64,7 @@ protected:
 
   void SetUp() override {
     port_ = tests::RandomPort();
-    detector_.reset(new GossipFailureDetector(port_, 10, 500, 5ms));
+    detector_.reset(new GossipFailureDetector(port_, 10000ms, 500ms, 5ms));
   }
 };
 

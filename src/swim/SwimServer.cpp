@@ -23,8 +23,8 @@ void SwimServer::start() {
   VLOG(2) << "TCP Socket created and initialized";
 
   // No point in keeping the socket around when we exit.
-  socket.set(zmq::sockopt::linger, kDefaultSocketLingerMsec);
-
+  zmq_setsockopt(socket, ZMQ_LINGER, &kDefaultSocketLingerMsec,
+                 sizeof(kDefaultSocketLingerMsec));
   auto address = utils::SocketAddress(port_);
   LOG(INFO) << "Server listening on: " << address << "(port: " << port_ << ")";
   socket.bind(address.c_str());
@@ -33,10 +33,10 @@ void SwimServer::start() {
   // the absence of incoming messages.
   zmq_pollitem_t items[] = {{socket, 0, ZMQ_POLLIN, 0}};
   stopped_ = false;
-  VLOG(2) << "Entering listening loop (polling every: " << polling_interval_
-          << " msec)";
+  VLOG(2) << "Entering listening loop (polling every: "
+          << polling_interval_.count() << " msec)";
   while (!stopped_) {
-    int rc = zmq_poll(items, 1, polling_interval_);
+    int rc = poll(items, 1, polling_interval_);
 
     // Due to the time we spent waiting for a message incoming (at most
     // `polling_interval_` msecs) `stopped_` may have become true and the server
@@ -77,7 +77,6 @@ void SwimServer::start() {
         message_t reply(2);
         memcpy(reply.data(), "OK", 2);
         socket.send(reply, zmq::send_flags::none);
-
       } else {
         LOG(ERROR) << "Cannot serialize data to `SwimEnvelope` protocol buffer";
         message_t reply(4);
@@ -99,7 +98,7 @@ void SwimServer::OnForwardRequest(Server *sender, Server *destination) {
   // unresponsive (while, in fact, it may be `destination` that is not
   // responding).
   //
-  std::thread ping_t{[=] {
+  std::thread([this, sender = sender, destination = destination] {
     // As per the SWIM protocol, this server will attempt to communicate with
     // the "suspected" server, and will update *its own* records accordingly;
     // but it will *not* report back to the original requestor; instead, it will
@@ -119,13 +118,13 @@ void SwimServer::OnForwardRequest(Server *sender, Server *destination) {
     // TODO: the timeout should be a property that we could set; for now using
     // the default value.
     SwimClient client(*destination, port_);
+
     if (!client.Send(report)) {
       VLOG(2) << self() << ": Forwarded request to " << *destination
               << " failed; reporting SUSPECTED";
       ReportSuspected(*destination);
     }
-  }};
-  ping_t.detach();
+  }).detach();
 }
 
 SwimReport SwimServer::PrepareReport() const {
@@ -171,8 +170,8 @@ void SwimServer::AddRecordsToBudget(SwimReport &report,
        });
 
   for (const auto &item : records) {
-    google::uint64 dt = item.timestamp() - now;
-    running_cost += cost(dt);
+    auto dt = now - item.timestamp();
+    running_cost += cost(duration_cast<seconds>(milliseconds{dt}).count());
     if (running_cost > kTimeDecayBudget)
       break;
     ServerRecord *prec = which == kAlive ? report.mutable_alive()->Add()

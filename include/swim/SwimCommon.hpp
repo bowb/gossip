@@ -25,16 +25,16 @@ const unsigned short kDefaultPort = 30395;
 
 /** Default Grace period the Gossip detector waits before declaring a `suspect`
  * host to be `dead` */
-const long kDefaultGracePeriodSec = 35;
+const std::chrono::milliseconds kDefaultGracePeriodMsec = 35000ms;
 
 /** Default interval between pings to neighbors */
-const unsigned int kDefaultPingIntervalSec = 5;
+const std::chrono::milliseconds kDefaultPingIntervalMsec = 5000ms;
 
 /** Default timeout for all clients connecting to servers */
 const std::chrono::milliseconds kDefaultTimeoutMsec = 25ms;
 
 /** Default interval between polling, when waiting for incoming requests. */
-const long kDefaultPollingIntervalMsec = 50;
+const std::chrono::milliseconds kDefaultPollingIntervalMsec = 50ms;
 
 /**
  * Required to keep ZMQ happy and remove unnecessary sockets "lingering" after

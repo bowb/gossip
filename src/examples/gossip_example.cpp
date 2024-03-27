@@ -52,14 +52,16 @@ int main(int argc, const char *argv[]) {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
   google::InitGoogleLogging(argv[0]);
 
+  std::shared_ptr<api::rest::ApiServer> apiServer;
+
   po::options_description opts{std::string{PROG_NAME} + " options"};
 
   auto port = ::kDefaultPort;
   auto http_port = ::kDefaultHttpPort;
   auto http = true;
   auto ping_timeout_msec = swim::kDefaultTimeoutMsec.count();
-  auto ping_interval_sec = swim::kDefaultPingIntervalSec;
-  auto grace_period_sec = swim::kDefaultGracePeriodSec;
+  auto ping_interval_msec = swim::kDefaultPingIntervalMsec.count();
+  auto grace_period_msec = swim::kDefaultGracePeriodMsec.count();
   auto seeds_list = std::vector<std::string>{};
   auto cors = std::string{};
   auto no_http = true;
@@ -77,10 +79,10 @@ int main(int argc, const char *argv[]) {
       "the HTTP port for the REST API, if server exposes it (see --http).")
     ("timeout", po::value<int64_t>(&ping_timeout_msec)->default_value(swim::kDefaultTimeoutMsec.count()),
       "in milliseconds, how long to wait for the server to respond to the ping.")
-    ("grace_period", po::value<long>(&grace_period_sec)->default_value(swim::kDefaultGracePeriodSec),
-      "in seconds, how long to wait before evicting suspected servers.")
-    ("ping_sec", po::value<unsigned int>(&ping_interval_sec)->default_value(swim::kDefaultPingIntervalSec),
-      "interval, in seconds, between pings to servers in the Gossip Circle.")
+    ("grace_period", po::value<int64_t>(&grace_period_msec)->default_value(swim::kDefaultGracePeriodMsec.count()),
+      "in milliseconds, how long to wait before evicting suspected servers.")
+    ("ping_interval", po::value<int64_t>(&ping_interval_msec)->default_value(swim::kDefaultPingIntervalMsec.count()),
+      "interval, in milliseconds, between pings to servers in the Gossip Circle.")
     ("seeds", po::value<::utils::list_option>()->multitoken(),
       "a comma-separated list of host:port of peers that this server will"
       "ininitially connect to, and part of the Gossip ring: from these "
@@ -165,7 +167,8 @@ int main(int argc, const char *argv[]) {
   try {
 
     detector = std::make_shared<GossipFailureDetector>(
-        port, ping_interval_sec, grace_period_sec,
+        port, std::chrono::milliseconds{ping_interval_msec},
+        std::chrono::milliseconds{grace_period_msec},
         std::chrono::milliseconds{ping_timeout_msec});
 
     if (seeds_list.empty()) {
@@ -226,10 +229,11 @@ int main(int argc, const char *argv[]) {
       LOG(INFO) << "Enabling HTTP REST API: http://" << utils::Hostname() << ":"
                 << http_port;
 
-      auto apiServer = api::rest::ApiServer(http_port);
+      apiServer = std::make_shared<api::rest::ApiServer>(http_port);
       namespace rest = api::rest;
 
-      apiServer.addGet("report", [addCors, cors](const rest::request &request) {
+      apiServer->addGet("report", [addCors,
+                                   cors](const rest::request &request) {
         rest::response response;
         response.version(request.version());
         response.result(api::rest::http::status::ok);
@@ -249,7 +253,7 @@ int main(int argc, const char *argv[]) {
         return response;
       });
 
-      apiServer.addPost("server", [](const rest::request &request) {
+      apiServer->addPost("server", [](const rest::request &request) {
         Server neighbor;
 
         auto status = ::google::protobuf::util::JsonStringToMessage(
@@ -283,7 +287,7 @@ int main(int argc, const char *argv[]) {
         return response;
       });
       LOG(INFO) << "Starting API Server";
-      apiServer.start();
+      apiServer->start();
       LOG(INFO) << ">>>Done";
     } else {
       LOG(INFO) << "REST API will not be available";

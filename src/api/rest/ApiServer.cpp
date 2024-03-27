@@ -13,85 +13,114 @@ void fail(boost::beast::error_code ec, char const *what) {
   std::cerr << what << ": " << ec.message() << "\n";
 }
 
+HttpConnection::HttpConnection(ApiServer *server, tcp::socket socket)
+    : server(server), socket(std::move(socket)) {}
+
+void HttpConnection::doRequest() {
+
+  auto lifetime = shared_from_this();
+
+  http::async_read(socket, buffer, req,
+                   [this, lifetime](boost::beast::error_code ec, std::size_t) {
+                     if (ec) {
+                       fail(ec, "read");
+                     }
+                     handleRequest(ec);
+                   });
+}
+
+void HttpConnection::handleRequest(boost::beast::error_code ec) {
+
+  auto prefix = false;
+  if (req.target().rfind("/api/v1") == 0) {
+    prefix = true;
+  }
+
+  const auto target =
+      prefix ? std::string{req.target().substr(std::string{"/api/v1/"}.size())}
+             : std::string{req.target().substr(1)};
+  const auto verb = req.method();
+
+  res.version(req.version());
+  res.result(http::status::not_found);
+  res.body() = "Unknown API endpoint";
+  if (ec) {
+    res.result(http::status::bad_request);
+    res.body() = ec.what();
+  }
+
+  if (!ec) {
+    switch (verb) {
+    case http::verb::post: {
+      auto it = server->posts.find(target);
+      if (it != server->posts.end()) {
+        auto [key, value] = *it;
+        auto r = value(req);
+        res = r;
+      }
+    } break;
+    case http::verb::get: {
+      auto it = server->gets.find(target);
+      if (it != server->gets.end()) {
+        auto [key, value] = *it;
+        auto r = value(req);
+        res = r;
+      }
+    } break;
+    default:
+      break;
+    }
+  }
+
+  res.set(http::field::server, "apierver");
+  res.prepare_payload();
+
+  respond();
+}
+
+void HttpConnection::respond() {
+  auto lifetime = shared_from_this();
+
+  http::async_write(socket, res,
+                    [this, lifetime](boost::beast::error_code ec, std::size_t) {
+                      if (ec) {
+                        fail(ec, "write");
+                      }
+                      socket.shutdown(tcp::socket::shutdown_send, ec);
+                      if (ec) {
+                        fail(ec, "shutdown");
+                      }
+                    });
+}
+
 ApiServer::ApiServer(unsigned short port)
-    : port(port), ioc{1}, acceptor{ioc, {tcp::v4(), port}}, posts(), gets() {}
+    : port(port), ioc{1}, acceptor{ioc, {tcp::v4(), port}}, socket(ioc),
+      posts(), gets() {}
 
-// Handles an HTTP server connection
-void ApiServer::doRequest(tcp::socket &socket) {
-  boost::beast::error_code ec;
-  boost::beast::flat_buffer buffer;
-  request req;
+ApiServer::~ApiServer() {
+  stop = true;
+  ioc.stop();
+  acceptor.close();
+  work.join();
+}
 
-  http::read(socket, buffer, req, ec);
+void ApiServer::accept() {
 
-  if (ec) {
-    return fail(ec, "read");
-  }
-
-  auto response = handleRequest(std::move(req));
-
-  // Send the response
-  http::write(socket, std::move(response), ec);
-
-  if (ec) {
-    return fail(ec, "write");
-  }
-
-  socket.shutdown(tcp::socket::shutdown_send, ec);
-
-  if (ec) {
-    fail(ec, "shutdown");
-  }
+  acceptor.async_accept(socket, [this](boost::beast::error_code ec) {
+    if (!ec) {
+      std::make_shared<HttpConnection>(this, std::move(socket))->doRequest();
+    }
+    accept();
+  });
 }
 
 void ApiServer::start() {
 
-  boost::beast::error_code ec;
+  work = std::thread([this] {
+    accept();
 
-  for (;;) {
-    auto socket = tcp::socket{ioc};
-    acceptor.accept(socket);
-    std::thread{std::bind(&ApiServer::doRequest, this, std::move(socket))}
-        .detach();
-  }
-}
-
-response ApiServer::handleRequest(request &&request) {
-
-  boost::beast::error_code ec;
-
-  const auto target = std::string{request.target().substr(1)};
-  const auto verb = request.method();
-
-  response response;
-  response.version(request.version());
-  response.result(http::status::bad_request);
-
-  switch (verb) {
-  case http::verb::post: {
-    auto it = posts.find(target);
-    if (it != posts.end()) {
-      auto [key, value] = *it;
-      auto r = value(request);
-      response = r;
-    }
-  } break;
-  case http::verb::get: {
-    auto it = gets.find(target);
-    if (it != gets.end()) {
-      auto [key, value] = *it;
-      auto r = value(request);
-      response = r;
-    }
-  } break;
-  default:
-    break;
-  }
-
-  response.set(http::field::server, "apierver");
-  response.prepare_payload();
-
-  return response;
+    ioc.run();
+  });
 }
 
 void ApiServer::addGet(const std::string &target, ApiFunctionType func) {

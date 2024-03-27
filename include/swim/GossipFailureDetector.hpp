@@ -42,12 +42,12 @@ class GossipFailureDetector {
    * The time between sending out updates to neighboring servers; these will
    * also serve as "liveness probes".
    */
-  seconds update_round_interval_{};
+  milliseconds update_round_interval_{};
 
   /**
    * The time we will wait for a `suspected` server to get back online.
    */
-  seconds grace_period_{};
+  milliseconds grace_period_{};
 
   /**
    * The timeout for when we ping a server and that we'll wait for a response to
@@ -109,13 +109,14 @@ public:
    */
   explicit GossipFailureDetector(
       unsigned short port = kDefaultPort,
-      const long interval = kDefaultPollingIntervalMsec,
-      const long grace_period = kDefaultGracePeriodSec,
+      const std::chrono::milliseconds interval = kDefaultPingIntervalMsec,
+      const std::chrono::milliseconds grace_period = kDefaultGracePeriodMsec,
       const std::chrono::milliseconds ping_timeout_msec = kDefaultTimeoutMsec)
       : update_round_interval_(interval), grace_period_(grace_period),
         ping_timeout_(ping_timeout_msec) {
     VLOG(2) << "GossipFailureDetector (port: " << port
-            << ", interval: " << interval << ", grace_period: " << grace_period
+            << ", interval_msec: " << interval.count()
+            << ", grace_period_msec: " << grace_period.count()
             << ", ping_timeout_msec: " << ping_timeout_msec.count() << ")";
     num_reports_ = kDefaultNumReports;
     num_forwards_ = kDefaultNumForward;
@@ -155,15 +156,15 @@ public:
   /**
    * @return the time between two successive reports (sent using `SendReport()`)
    */
-  const seconds &update_round_interval() const {
+  const milliseconds &update_round_interval() const {
     return update_round_interval_;
   }
 
   /**
-   * @return the time in seconds after which a "suspected" server is declared
-   * "dead"
+   * @return the time in milliseconds after which a "suspected" server is
+   * declared "dead"
    */
-  const seconds &grace_period() const { return grace_period_; }
+  const milliseconds &grace_period() const { return grace_period_; }
 
   /**
    * @return the timeout for a PingNeighbor() to a server: if the server does
@@ -177,7 +178,7 @@ public:
    *
    * @param update_round_interval
    */
-  void set_update_round_interval(const seconds &update_round_interval) {
+  void set_update_round_interval(const milliseconds &update_round_interval) {
     update_round_interval_ = update_round_interval;
   }
 
@@ -186,7 +187,7 @@ public:
    *
    * @param grace_period
    */
-  void set_grace_period(const seconds &grace_period) {
+  void set_grace_period(const milliseconds &grace_period) {
     grace_period_ = grace_period;
   }
 

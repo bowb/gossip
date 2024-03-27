@@ -1,6 +1,7 @@
 // Copyright (c) 2016 AlertAvert.com. All rights reserved.
 // Created by M. Massenzio (marco@alertavert.com) on 10/8/16.
 
+#include <future>
 #include <glog/logging.h>
 #include <iostream>
 #include <utils/utils.hpp>
@@ -38,7 +39,9 @@ bool SwimClient::Send(const SwimReport &report) const {
   message.set_type(SwimEnvelope_Type_STATUS_REPORT);
   message.mutable_report()->CopyFrom(report);
 
-  return postMessage(&message);
+  auto ret = postMessage(&message);
+
+  return ret;
 }
 
 bool SwimClient::RequestPing(const Server *other) const {
@@ -71,43 +74,57 @@ bool SwimClient::postMessage(SwimEnvelope *envelope) const {
   char buf[msgSize];
   memcpy(buf, msgAsStr.data(), msgSize);
 
-  context_t ctx(1);
-  socket_t socket(ctx, ZMQ_REQ);
-  socket.set(zmq::sockopt::linger, swim::kDefaultSocketLingerMsec);
-  socket.connect(destinationUri().c_str());
+  // zmq can hang while trying to cleanup so wrap in a promise
+  std::promise<bool> prom;
+  std::future<bool> fut = prom.get_future();
 
-  message_t msg(buf, msgSize, nullptr);
+  // Start a thread to set the value
+  std::thread([=, &prom, &buf] {
+    context_t ctx(1);
+    ctx.set(zmq::ctxopt::blocky, false);
+    socket_t socket(ctx, ZMQ_REQ);
+    // socket.set(zmq::sockopt::linger, kDefaultSocketLingerMsec);
 
-  VLOG(2) << self_ << ": Connecting to " << destinationUri();
-  if (!socket.send(msg, zmq::send_flags::none)) {
-    LOG(ERROR) << self_ << ": Failed to send message to " << destinationUri();
-    return false;
-  }
+    socket.connect(destinationUri().c_str());
 
-  zmq_pollitem_t items[] = {{socket, 0, ZMQ_POLLIN, 0}};
-  poll(items, 1, timeout());
+    message_t msg(buf, msgSize, nullptr);
 
-  if (!items[0].revents & ZMQ_POLLIN) {
-    LOG(ERROR) << self_ << ": Timed out waiting for response from "
-               << destinationUri();
-    return false;
-  }
+    VLOG(2) << self_ << ": Connecting to " << destinationUri();
+    if (!socket.send(msg, zmq::send_flags::none)) {
+      LOG(ERROR) << self_ << ": Failed to send message to " << destinationUri();
+      prom.set_value(false);
+      return;
+    }
 
-  message_t reply;
-  if (!socket.recv(reply, zmq::recv_flags::none)) {
-    LOG(ERROR) << self_ << ": Failed to receive reply from server"
-               << destinationUri();
-    return false;
-  }
+    zmq_pollitem_t items[] = {{socket, 0, ZMQ_POLLIN, 0}};
+    poll(items, 1, timeout_);
 
-  char response[reply.size() + 1];
-  VLOG(2) << self_ << ": Received: " << reply.size() << " bytes from "
-          << destinationUri();
-  memset(response, 0, reply.size() + 1);
-  memcpy(response, reply.data(), reply.size());
-  VLOG(2) << self_ << ": Response: " << response;
+    if (!items[0].revents & ZMQ_POLLIN) {
+      LOG(ERROR) << self_ << ": Timed out waiting for response from "
+                 << destinationUri();
+      prom.set_value(false);
+      return;
+    }
 
-  return strcmp(response, "OK") == 0;
+    message_t reply;
+    if (!socket.recv(reply, zmq::recv_flags::none)) {
+      LOG(ERROR) << self_ << ": Failed to receive reply from server"
+                 << destinationUri();
+      prom.set_value(false);
+      return;
+    }
+
+    char response[reply.size() + 1];
+    VLOG(2) << self_ << ": Received: " << reply.size() << " bytes from "
+            << destinationUri();
+    memset(response, 0, reply.size() + 1);
+    memcpy(response, reply.data(), reply.size());
+    VLOG(2) << self_ << ": Response: " << response;
+
+    prom.set_value(strcmp(response, "OK") == 0);
+  }).detach();
+
+  return fut.get();
 }
 
 } // namespace swim

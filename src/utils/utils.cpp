@@ -3,6 +3,7 @@
 #include "version.h"
 #include <algorithm>
 #include <arpa/inet.h>
+#include <chrono>
 #include <glog/logging.h>
 #include <memory>
 #include <netdb.h>
@@ -12,6 +13,8 @@
 #include <boost/any.hpp>
 #include <boost/program_options.hpp>
 #include <boost/tokenizer.hpp>
+
+#include <date/date.h>
 
 namespace utils {
 
@@ -107,7 +110,12 @@ std::ostream &PrintVersion(const std::string &server_name,
 }
 
 google::uint64 CurrentTime() {
-  return static_cast<google::uint64>(std::time(nullptr));
+  return static_cast<google::uint64>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::floor<std::chrono::milliseconds>(
+              std::chrono::system_clock::now())
+              .time_since_epoch())
+          .count());
 }
 
 std::string Hostname() {

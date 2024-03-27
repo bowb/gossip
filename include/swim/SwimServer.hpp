@@ -45,7 +45,7 @@ class SwimServer {
   unsigned short port_;
   unsigned int num_threads_;
   std::atomic<bool> stopped_;
-  unsigned long polling_interval_;
+  std::chrono::milliseconds polling_interval_;
 
   /**
    * The list of servers that we deem to be healthy (they responded to a ping
@@ -143,8 +143,9 @@ public:
   /** Number of parallel threads handling ZMQ socket requests. */
   static const unsigned int kNumThreads = 5;
 
-  SwimServer(unsigned short port, unsigned int threads = kNumThreads,
-             unsigned long polling_interval = kDefaultPollingIntervalMsec)
+  SwimServer(
+      unsigned short port, unsigned int threads = kNumThreads,
+      std::chrono::milliseconds polling_interval = kDefaultPollingIntervalMsec)
       : port_(port), num_threads_(threads), stopped_(true),
         polling_interval_(polling_interval) {}
 

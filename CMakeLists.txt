@@ -95,6 +95,7 @@ find_package(Boost 1.80.0 REQUIRED COMPONENTS program_options system)
 find_package(glog 0.7.0 REQUIRED)
 find_package(ZeroMQ)
 find_package(cppzmq)
+find_package(date)
 
 # Building Protocol Buffers.
 find_package(Protobuf REQUIRED)
@@ -111,6 +112,7 @@ endif()
 include_directories(
   BEFORE
   ${INCLUDE_DIR}
+  ${date_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
   ${glog_INCLUDE_DIRS}
   ${cppzmq_INCLUDE_DIRS}

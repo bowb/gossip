@@ -365,9 +365,10 @@ TEST_F(SwimServerTests, servesPingRequests) {
   ASSERT_EQ(1, server_->alive_size());
 
   // We need to wait a bit for the ping to time out.
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   SwimReport report = server_->PrepareReport();
+
   // This is the fake server.
   ASSERT_EQ(1, report.suspected_size());
   const ServerRecord &record = report.suspected(0);
@@ -402,8 +403,7 @@ TEST_F(SwimServerTests, testBudget) {
 
   auto svr = MakeServer(server_->self().hostname(), server_->port());
 
-  // The default timeout (25 msec) seems to cause sometimes failures.
-  SwimClient client(*svr, 33456, 200ms);
+  SwimClient client(*svr, 33456);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -412,7 +412,7 @@ TEST_F(SwimServerTests, testBudget) {
   for (int i = 0; i < 100; ++i) {
     ServerRecord *two = suspected->Add();
     two->mutable_server()->set_hostname("host-suspect-" + std::to_string(i));
-    two->set_timestamp(utils::CurrentTime() - 2 * i);
+    two->set_timestamp(utils::CurrentTime() - 2000 * i);
     two->mutable_server()->set_port(5500 + i);
   }
 

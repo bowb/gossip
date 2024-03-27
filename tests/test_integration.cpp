@@ -34,9 +34,9 @@ protected:
     // detector
     detector.reset(new GossipFailureDetector(
         ::tests::RandomPort(),
-        1,   // time between reports
-        2,   // grace period, dictates length of tests, must not be too long.
-        20ms // ping timeout, in milliseconds: can be really short.
+        1000ms, // time between reports
+        2000ms, // grace period, dictates length of tests, must not be too long.
+        20ms    // ping timeout, in milliseconds: can be really short.
         ));
 
     // Wait for the Gossip Detector to start.
@@ -241,6 +241,7 @@ TEST_F(IntegrationTests, reportsApiServer) {
 
     ::google::protobuf::util::MessageToJsonString(report, &json_body);
     response.body() = json_body;
+    response.set(api::rest::http::field::content_type, "application/json");
     return response;
   });
   server->start();
