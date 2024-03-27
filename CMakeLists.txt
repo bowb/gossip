@@ -6,8 +6,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMAND ON)
 
-# cmake_policy(SET CMP0068 NEW)
-
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_BINARY_DIR}
                       ${CMAKE_SOURCE_DIR}/CMake)
 
@@ -145,8 +143,6 @@ target_link_libraries(gossip PRIVATE ${SWIM_LIBS})
 
 add_library(gossipStatic STATIC ${SWIM_SOURCES} ${PROTO_SRCS})
 target_link_libraries(gossipStatic PRIVATE ${SWIM_LIBS})
-set_target_properties(gossipStatic PROPERTIES PUBLIC_HEADER
-                                              "${SWIM_PUBLIC_HEADERS}")
 
 set(API_SERVER_SOURCES ${SOURCE_DIR}/api/rest/ApiServer.cpp)
 
