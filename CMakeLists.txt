@@ -89,7 +89,7 @@ set(PROTO_DIR ${PROJECT_SOURCE_DIR}/proto)
 set(PROTO_GEN_DIR ${CMAKE_BINARY_DIR}/proto)
 
 # Configure a header file to pass settings into source code.
-configure_file(${SOURCE_DIR}/config.h.in ${CMAKE_BINARY_DIR}/include/version.h)
+configure_file(${SOURCE_DIR}/config.h.in ${CMAKE_BINARY_DIR}/gen/version.h)
 
 find_package(Boost 1.84.0 REQUIRED COMPONENTS program_options system)
 find_package(glog 0.7.0 REQUIRED)
@@ -118,9 +118,9 @@ include_directories(
   ${cppzmq_INCLUDE_DIRS}
   ${ZeroMQ_INCLUDE_DIRS}
   ${protobuf_INCLUDE_DIRS}
-  ${CMAKE_BINARY_DIR}
-  ${CMAKE_BINARY_DIR}/include
-  ${PROTO_GEN_DIR})
+  ${CMAKE_BINARY_DIR}/gen
+  ${PROTO_GEN_DIR}
+  ${CMAKE_BINARY_DIR})
 
 add_library(SWIM_UTILS-lib STATIC ${SOURCE_DIR}/utils/utils.cpp)
 target_link_libraries(SWIM_UTILS-lib glog::glog)
@@ -131,6 +131,10 @@ set(SWIM_SOURCES
 
 set(SWIM_LIBS protobuf::libprotobuf pthread libzmq-static SWIM_UTILS-lib)
 
+set(SWIM_PUBLIC_HEADERS
+    "${INCLUDE_DIR}/swim/GossipFailureDetector.hpp"
+    "${INCLUDE_DIR}/swim/SwimClient.hpp" "${INCLUDE_DIR}/swim/SwimServer.hpp"
+    "${INCLUDE_DIR}/swim/SwimCommon.hpp" "${PROTO_GEN_DIR}/swim.pb.h")
 #
 # libgossip.so
 #
@@ -138,9 +142,12 @@ set(SWIM_LIBS protobuf::libprotobuf pthread libzmq-static SWIM_UTILS-lib)
 #
 add_library(gossip SHARED ${SWIM_SOURCES} ${PROTO_SRCS})
 target_link_libraries(gossip PRIVATE ${SWIM_LIBS})
+set_target_properties(gossip PROPERTIES PUBLIC_HEADER "${SWIM_PUBLIC_HEADERS}")
 
 add_library(gossipStatic STATIC ${SWIM_SOURCES} ${PROTO_SRCS})
 target_link_libraries(gossipStatic PRIVATE ${SWIM_LIBS})
+set_target_properties(gossipStatic PROPERTIES PUBLIC_HEADER
+                                              "${SWIM_PUBLIC_HEADERS}")
 
 set(API_SERVER_SOURCES ${SOURCE_DIR}/api/rest/ApiServer.cpp)
 
@@ -179,4 +186,10 @@ target_link_libraries(
                                   apiserver Boost::program_options)
 
 configure_file(${INCLUDE_DIR}/request/SimpleHttpRequest.hpp
-               ${CMAKE_BINARY_DIR}/include)
+               ${CMAKE_BINARY_DIR}/gen/)
+
+install(
+  TARGETS gossip gossipStatic
+  EXPORT gossip
+  DESTINATION ${CMAKE_BINARY_DIR}/lib
+  PUBLIC_HEADER DESTINATION ${CMAKE_BINARY_DIR}/include/gossip)
