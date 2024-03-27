@@ -8,9 +8,9 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-#include "../include/swim/SwimClient.hpp"
-
 #include "../include/swim/GossipFailureDetector.hpp"
+#include "../include/swim/SwimClient.hpp"
+#include <utils/utils.hpp>
 
 #include "tests.h"
 
@@ -172,7 +172,8 @@ TEST_F(GossipFailureDetectorTests, DISABLED_prepareReport) {
   // sure there is no other thread accessing these collections.
   auto &swimServer = const_cast<SwimServer &>(detector_->gossip_server());
 
-  swimServer.ReportSuspected(*MakeServer("host_1.example.com", 4457));
+  swimServer.ReportSuspected(*MakeServer("host_1.example.com", 4457),
+                             ::utils::CurrentTime());
   report = detector_->gossip_server().PrepareReport();
   ASSERT_EQ(2, report.alive_size());
   ASSERT_EQ(1, report.suspected_size());

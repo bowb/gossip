@@ -187,20 +187,18 @@ target_link_libraries(
 configure_file(${INCLUDE_DIR}/request/SimpleHttpRequest.hpp
                ${CMAKE_BINARY_DIR}/gen/)
 
+install(FILES ${SWIM_PUBLIC_HEADERS} DESTINATION include)
+
 install(
-  FILES
-  ${SWIM_PUBLIC_HEADERS}
-  DESTINATION include)
+  TARGETS gossip
+  EXPORT gossip-targets
+  LIBRARY DESTINATION "lib${LIB_SUFFIX}" # .so file
+  ARCHIVE DESTINATION "lib${LIB_SUFFIX}" # .lib file
+)
 
-  install(TARGETS gossip
-    EXPORT gossip-targets
-    LIBRARY DESTINATION "lib${LIB_SUFFIX}" # .so file
-    ARCHIVE DESTINATION "lib${LIB_SUFFIX}" # .lib file
-  )
-
-  install(TARGETS gossipStatic
-    EXPORT gossip-targets
-    LIBRARY DESTINATION "lib${LIB_SUFFIX}" # .so file
-    ARCHIVE DESTINATION "lib${LIB_SUFFIX}" # .lib file
-  )
-
+install(
+  TARGETS gossipStatic
+  EXPORT gossip-targets
+  LIBRARY DESTINATION "lib${LIB_SUFFIX}" # .so file
+  ARCHIVE DESTINATION "lib${LIB_SUFFIX}" # .lib file
+)

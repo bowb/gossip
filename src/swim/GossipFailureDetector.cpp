@@ -2,6 +2,7 @@
 // Created by M. Massenzio (marco@alertavert.com) on 2/12/17.
 
 #include "swim/GossipFailureDetector.hpp"
+#include <utils/utils.hpp>
 
 #include <memory>
 
@@ -85,7 +86,7 @@ void GossipFailureDetector::SendReport() const {
       // We managed to pick an unresponsive server; let's add to suspects.
       LOG(WARNING) << "Report sending failed; adding " << other
                    << " to suspects";
-      gossip_server_->ReportSuspected(other);
+      gossip_server_->ReportSuspected(other, ::utils::CurrentTime());
       auto forwards = GetUniqueNeighbors(num_forwards_);
       for (const auto &fwd : forwards) {
         VLOG(2) << "Requesting " << fwd << " to ping " << other
@@ -101,7 +102,7 @@ void GossipFailureDetector::SendReport() const {
     } else {
       // All is well, simply update the timestamp of when we last "saw" this
       // healthy server.
-      gossip_server_->AddAlive(other);
+      gossip_server_->AddAlive(other, ::utils::CurrentTime());
     }
   }
 }
@@ -163,4 +164,11 @@ void GossipFailureDetector::StopAllBackgroundThreads() {
                   "this detector is "
                << "no longer participating in Gossip.";
 }
+
+void GossipFailureDetector::AddNeighbor(const Server &host) {
+  if (!gossip_server_->AddAlive(host, ::utils::CurrentTime())) {
+    LOG(WARNING) << "Failed to add host " << host << " to neighbors sets";
+  }
+}
+
 } // namespace swim

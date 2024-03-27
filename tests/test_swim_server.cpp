@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "../include/swim/SwimServer.hpp"
+#include <utils/utils.hpp>
 
 #include "tests.h"
 
@@ -439,7 +440,7 @@ TEST(SwimProtocolTests, testForwarding) {
     ::tests::WaitAtMostFor([=]() { return server->isRunning(); },
                            std::chrono::milliseconds(200));
   }
-  sender.ReportSuspected(suspected.self());
+  sender.ReportSuspected(suspected.self(), ::utils::CurrentTime());
 
   // This is necessary, as `set_allocated_xxx()` will cause PB to take ownership
   // of the pointer, and deallocate it when done (which is what will happen when
@@ -481,7 +482,7 @@ TEST(SwimProtocolTests, testForwardingStaysSuspected) {
     ::tests::WaitAtMostFor([=]() { return server->isRunning(); },
                            std::chrono::milliseconds(200));
   }
-  sender.ReportSuspected(suspected.self());
+  sender.ReportSuspected(suspected.self(), ::utils::CurrentTime());
 
   // This is necessary, as `set_allocated_xxx()` will cause PB to take ownership
   // of the pointer, and deallocate it when done (which is what will happen when

@@ -11,7 +11,6 @@
 #include <thread>
 
 #include <glog/logging.h>
-#include <utils/utils.hpp>
 
 #include "SwimClient.hpp"
 #include "SwimCommon.hpp"
@@ -182,13 +181,7 @@ public:
    * @return the coordinates of this server (host and port; optionally, the IP
    * address too)
    */
-  const Server self() const {
-    auto server = Server();
-    server.set_port(port());
-    server.set_hostname(utils::Hostname());
-    server.set_ip_addr(utils::InetAddress());
-    return server;
-  }
+  const Server self() const;
 
   /**
    * This is thread-safe to access.
@@ -249,8 +242,7 @@ public:
    * suspected; defaults to `now()`
    * @return whether adding `server` to the `suspected_` set was successful
    */
-  bool ReportSuspected(const Server &server,
-                       google::uint64 timestamp = ::utils::CurrentTime());
+  bool ReportSuspected(const Server &server, google::uint64 timestamp);
 
   /**
    * Use this for either a newly discovered neighbor, or for a `suspected_`
@@ -262,8 +254,7 @@ public:
    * suspected; defaults to `now()`
    * @return whether adding `server` to `alive_` set was successful
    */
-  bool AddAlive(const Server &server,
-                google::uint64 timestamp = ::utils::CurrentTime());
+  bool AddAlive(const Server &server, google::uint64 timestamp);
 
   /**
    * Removes the given server from the suspected set, thus marking it as

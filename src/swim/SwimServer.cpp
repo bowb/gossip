@@ -5,6 +5,7 @@
 #include <zmq.hpp>
 
 #include "swim/SwimServer.hpp"
+#include <utils/utils.hpp>
 
 using namespace zmq;
 
@@ -88,10 +89,18 @@ void SwimServer::start() {
   LOG(WARNING) << "SERVER STOPPED: " << self();
 }
 
+const swim::Server SwimServer::self() const {
+  auto server = Server();
+  server.set_port(port());
+  server.set_hostname(utils::Hostname());
+  server.set_ip_addr(utils::InetAddress());
+  return server;
+}
+
 void SwimServer::OnForwardRequest(Server *sender, Server *destination) {
 
   // First off, the sender is alive and well.
-  AddAlive(*sender);
+  AddAlive(*sender, ::utils::CurrentTime());
 
   // We do the ping forwarding in a background thread, or we may cause a timeout
   // for the waiting requestor, and this server would be incorrectly reported as
@@ -122,7 +131,7 @@ void SwimServer::OnForwardRequest(Server *sender, Server *destination) {
     if (!client.Send(report)) {
       VLOG(2) << self() << ": Forwarded request to " << *destination
               << " failed; reporting SUSPECTED";
-      ReportSuspected(*destination);
+      ReportSuspected(*destination, ::utils::CurrentTime());
     }
   }).detach();
 }
@@ -271,7 +280,7 @@ void SwimServer::OnReport(Server *sender, SwimReport *report) {
   std::unique_ptr<Server> ps(sender);
 
   VLOG(2) << self() << ": received Report from " << *sender;
-  AddAlive(*sender);
+  AddAlive(*sender, ::utils::CurrentTime());
 
   for (const auto &record : report->alive()) {
     if (record.server() == self()) {
@@ -321,7 +330,7 @@ void SwimServer::OnUpdate(Server *client) {
   std::unique_ptr<Server> ps(client);
 
   VLOG(3) << "Received a ping from " << *client;
-  AddAlive(*ps);
+  AddAlive(*ps, ::utils::CurrentTime());
 
   // If it was previously suspected of being unresponsive, this server is
   // removed from the suspected list:

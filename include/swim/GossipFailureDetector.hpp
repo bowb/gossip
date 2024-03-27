@@ -258,11 +258,7 @@ public:
    * the "alive set," hence passing a temporary variable that gets destroyed
    * after this call will not cause any issue.
    */
-  void AddNeighbor(const Server &host) {
-    if (!gossip_server_->AddAlive(host)) {
-      LOG(WARNING) << "Failed to add host " << host << " to neighbors sets";
-    }
-  }
+  void AddNeighbor(const Server &host);
 
   /**
    * It sends an update report to a neighbor from the `alive()` set, choosing it
