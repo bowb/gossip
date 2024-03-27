@@ -142,7 +142,6 @@ set(SWIM_PUBLIC_HEADERS
 #
 add_library(gossip SHARED ${SWIM_SOURCES} ${PROTO_SRCS})
 target_link_libraries(gossip PRIVATE ${SWIM_LIBS})
-set_target_properties(gossip PROPERTIES PUBLIC_HEADER "${SWIM_PUBLIC_HEADERS}")
 
 add_library(gossipStatic STATIC ${SWIM_SOURCES} ${PROTO_SRCS})
 target_link_libraries(gossipStatic PRIVATE ${SWIM_LIBS})
@@ -189,7 +188,19 @@ configure_file(${INCLUDE_DIR}/request/SimpleHttpRequest.hpp
                ${CMAKE_BINARY_DIR}/gen/)
 
 install(
-  TARGETS gossip gossipStatic
-  EXPORT gossip
-  DESTINATION ${CMAKE_BINARY_DIR}/lib
-  PUBLIC_HEADER DESTINATION ${CMAKE_BINARY_DIR}/include/gossip)
+  FILES
+  ${SWIM_PUBLIC_HEADERS}
+  DESTINATION include/gossip)
+
+  install(TARGETS gossip
+    EXPORT gossip-targets
+    LIBRARY DESTINATION "lib${LIB_SUFFIX}" # .so file
+    ARCHIVE DESTINATION "lib${LIB_SUFFIX}" # .lib file
+  )
+
+  install(TARGETS gossipStatic
+    EXPORT gossip-targets
+    LIBRARY DESTINATION "lib${LIB_SUFFIX}" # .so file
+    ARCHIVE DESTINATION "lib${LIB_SUFFIX}" # .lib file
+  )
+
