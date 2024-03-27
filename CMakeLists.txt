@@ -22,8 +22,12 @@ execute_process(
   OUTPUT_VARIABLE SHORT_HASH
   OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-string(STRIP BUILD_ID, BUILD_ID)
-set(BUILD_ID ${SHORT_HASH})
+if(STATUS AND NOT STATUS EQUAL 0)
+  set(BUILD_ID "")
+else()
+  string(STRIP BUILD_ID, BUILD_ID)
+  set(BUILD_ID ${SHORT_HASH})
+endif()
 
 include(conan)
 
