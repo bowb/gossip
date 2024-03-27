@@ -186,7 +186,7 @@ configure_file(${INCLUDE_DIR}/request/SimpleHttpRequest.hpp
 install(
   FILES
   ${SWIM_PUBLIC_HEADERS}
-  DESTINATION include/gossip)
+  DESTINATION include)
 
   install(TARGETS gossip
     EXPORT gossip-targets
