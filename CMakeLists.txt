@@ -1,5 +1,5 @@
 # This file (c) 2016-2020 AlertAvert.com.  All rights reserved.
-cmake_minimum_required(VERSION 3.28.4)
+cmake_minimum_required(VERSION 3.20)
 project(gossip)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -fPIC")
 set(CMAKE_CXX_STANDARD 17)
