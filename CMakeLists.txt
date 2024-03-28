@@ -12,7 +12,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_BINARY_DIR}
 # Version number
 set(RELEASE_MAJOR 1)
 set(RELEASE_MINOR 0)
-set(RELEASE_PATCH 3)
+set(RELEASE_PATCH 5)
 
 find_program(NAMES git REQUIRED)
 
@@ -95,12 +95,12 @@ configure_file(${SOURCE_DIR}/config.h.in ${CMAKE_BINARY_DIR}/gen/version.h)
 
 find_package(Boost 1.84.0 REQUIRED COMPONENTS program_options system)
 find_package(glog 0.7.0 REQUIRED)
-find_package(ZeroMQ)
-find_package(cppzmq)
-find_package(date)
+find_package(ZeroMQ 4.3.5 REQUIRED)
+find_package(cppzmq 4.10.0 REQUIRED)
+find_package(date 3.0.1 REQUIRED)
 
 # Building Protocol Buffers.
-find_package(Protobuf REQUIRED)
+find_package(Protobuf 3.21.12 REQUIRED)
 
 if(${PROTOBUF_FOUND})
   protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_DIR}/swim.proto)
@@ -111,27 +111,17 @@ else()
   message(FATAL_ERROR "Could not find Google Protocol Buffers libraries")
 endif()
 
-include_directories(
-  BEFORE
-  ${INCLUDE_DIR}
-  ${date_INCLUDE_DIRS}
-  ${Boost_INCLUDE_DIRS}
-  ${glog_INCLUDE_DIRS}
-  ${cppzmq_INCLUDE_DIRS}
-  ${ZeroMQ_INCLUDE_DIRS}
-  ${protobuf_INCLUDE_DIRS}
-  ${CMAKE_BINARY_DIR}/gen
-  ${PROTO_GEN_DIR}
-  ${CMAKE_BINARY_DIR})
+include_directories(BEFORE ${INCLUDE_DIR} ${CMAKE_BINARY_DIR}/gen
+                    ${PROTO_GEN_DIR} ${CMAKE_BINARY_DIR})
 
 add_library(SWIM_UTILS-lib STATIC ${SOURCE_DIR}/utils/utils.cpp)
-target_link_libraries(SWIM_UTILS-lib glog::glog)
+target_link_libraries(SWIM_UTILS-lib Boost::Boost glog::glog date::date)
 
 set(SWIM_SOURCES
     ${SOURCE_DIR}/swim/SwimClient.cpp ${SOURCE_DIR}/swim/SwimServer.cpp
     ${SOURCE_DIR}/swim/GossipFailureDetector.cpp)
 
-set(SWIM_LIBS protobuf::libprotobuf pthread libzmq-static SWIM_UTILS-lib)
+set(SWIM_LIBS cppzmq protobuf::libprotobuf pthread libzmq-static SWIM_UTILS-lib)
 
 set(SWIM_PUBLIC_HEADERS
     "${INCLUDE_DIR}/swim/GossipFailureDetector.hpp"
@@ -149,8 +139,8 @@ add_library(gossipStatic STATIC ${SWIM_SOURCES} ${PROTO_SRCS})
 target_link_libraries(gossipStatic PRIVATE ${SWIM_LIBS})
 
 set(API_SERVER_SOURCES ${SOURCE_DIR}/api/rest/ApiServer.cpp)
-
 add_library(apiserver STATIC ${API_SERVER_SOURCES})
+target_link_libraries(apiserver PRIVATE Boost::Boost)
 
 # Unit tests build is defined in the tests/ folder
 add_subdirectory(${TESTS_DIR})
@@ -171,8 +161,9 @@ link_directories(${CMAKE_BINARY_DIR}/lib ${INSTALL_DIR}/lib)
 # `SwimServer` class.
 #
 add_executable(swim_server_demo ${EXAMPLES_DIR}/server_demo.cpp)
-target_link_libraries(swim_server_demo PRIVATE glog::glog gossip
-                                               Boost::program_options)
+target_link_libraries(
+  swim_server_demo PRIVATE cppzmq libzmq-static glog::glog gossip
+                           protobuf::libprotobuf Boost::program_options)
 
 #
 # Gossip Server
@@ -181,8 +172,9 @@ target_link_libraries(swim_server_demo PRIVATE glog::glog gossip
 #
 add_executable(gossip_detector_example ${EXAMPLES_DIR}/gossip_example.cpp)
 target_link_libraries(
-  gossip_detector_example PRIVATE glog::glog gossip protobuf::libprotobuf
-                                  apiserver Boost::program_options)
+  gossip_detector_example
+  PRIVATE libzmq-static glog::glog gossip protobuf::libprotobuf apiserver
+          Boost::program_options)
 
 configure_file(${INCLUDE_DIR}/request/SimpleHttpRequest.hpp
                ${CMAKE_BINARY_DIR}/gen/)

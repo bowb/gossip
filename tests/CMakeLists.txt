@@ -39,12 +39,13 @@ set_source_files_properties(${PROTO_SRCS} ${PROTO_HDRS} PROPERTIES GENERATED
                                                                    TRUE)
 
 add_executable(unit_tests ${UNIT_TESTS} tests.h all_tests.cpp)
-target_link_libraries(unit_tests GTest::gtest protobuf::libprotobuf gossip
-                      glog::glog)
+target_link_libraries(unit_tests Boost::Boost GTest::gtest
+                      protobuf::libprotobuf gossip glog::glog)
 
 add_executable(integration_tests ${INTEGRATION_TESTS} tests.h all_tests.cpp)
 target_link_libraries(
   integration_tests
+  Boost::Boost
   GTest::gtest
   glog::glog
   gossip
