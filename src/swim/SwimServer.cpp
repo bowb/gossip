@@ -234,9 +234,17 @@ bool SwimServer::ReportSuspected(const Server &server,
   }
 
   // Then add it to the suspected set.
-  mutex_guard lock(suspected_mutex_);
-  auto inserted = suspected_.insert(suspectRecord);
-  return inserted.second;
+  bool inserted = false;
+  {
+    mutex_guard lock(suspected_mutex_);
+    inserted = suspected_.insert(suspectRecord).second;
+  }
+
+  if (inserted && statusCb.has_value()) {
+    statusCb.value()(suspectRecord, ServerStatus::suspect);
+  }
+
+  return inserted;
 }
 
 bool SwimServer::AddAlive(const Server &server, google::uint64 timestamp) {
@@ -250,18 +258,26 @@ bool SwimServer::AddAlive(const Server &server, google::uint64 timestamp) {
   std::shared_ptr<ServerRecord> aliveRecord = MakeRecord(server);
   aliveRecord->set_timestamp(timestamp);
 
-  mutex_guard lock(alive_mutex_);
-  auto inserted = alive_.insert(aliveRecord);
+  bool inserted = false;
+  {
+    mutex_guard lock(alive_mutex_);
+    inserted = alive_.insert(aliveRecord).second;
+  }
 
   // If we already knew of this server being healthy, all we have to do
   // is update the timestamp of the last time we saw it.
-  if (!inserted.second) {
+  if (!inserted) {
     auto pr = alive_.find(aliveRecord);
     if (pr != alive_.end()) {
       (*pr)->set_timestamp(timestamp);
     }
   }
-  return inserted.second;
+
+  if (inserted && statusCb.has_value()) {
+    statusCb.value()(aliveRecord, ServerStatus::alive);
+  }
+
+  return inserted;
 }
 
 void SwimServer::RemoveSuspected(const Server &server) {
@@ -273,6 +289,9 @@ void SwimServer::RemoveSuspected(const Server &server) {
   }
   if (num > 0) {
     VLOG(2) << "Removed " << num << " entry from the suspected set";
+    if (statusCb.has_value()) {
+      statusCb.value()(aliveRecord, ServerStatus::removed);
+    }
   }
 }
 

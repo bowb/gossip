@@ -62,9 +62,31 @@ protected:
   std::unique_ptr<GossipFailureDetector> detector_;
   unsigned short port_;
 
+  int aliveReceivedCount;
+  int suspectReceivedCount;
+  int suspectRemovedCount;
+
   void SetUp() override {
     port_ = tests::RandomPort();
-    detector_.reset(new GossipFailureDetector(port_, 10000ms, 500ms, 5ms));
+    aliveReceivedCount = 0;
+    suspectReceivedCount = 0;
+    suspectRemovedCount = 0;
+
+    detector_.reset(new GossipFailureDetector(
+        [this](std::shared_ptr<ServerRecord>, ServerStatus status) {
+          if (ServerStatus::alive == status) {
+            aliveReceivedCount++;
+          }
+
+          if (ServerStatus::suspect == status) {
+            suspectReceivedCount++;
+          }
+
+          if (ServerStatus::removed == status) {
+            suspectRemovedCount++;
+          }
+        },
+        port_, 10000ms, 500ms, 5ms));
   }
 };
 
@@ -83,6 +105,9 @@ TEST_F(GossipFailureDetectorTests, updatesAlives) {
   ASSERT_TRUE(server.alive_empty());
   ASSERT_TRUE(client.Ping());
   ASSERT_EQ(1, server.alive_size());
+  ASSERT_EQ(1, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 }
 
 TEST_F(GossipFailureDetectorTests, updatesManyAlives) {
@@ -102,6 +127,9 @@ TEST_F(GossipFailureDetectorTests, updatesManyAlives) {
   }
 
   ASSERT_EQ(10, server.alive_size());
+  ASSERT_EQ(10, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 }
 
 TEST_F(GossipFailureDetectorTests, create) {
@@ -127,6 +155,10 @@ TEST_F(GossipFailureDetectorTests, create) {
   detector_->AddNeighbor(h1_alias);
   ASSERT_EQ(1, server.alive_size());
 
+  ASSERT_EQ(1, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
+
   // However, a different port is regarded as a different server: note
   // `hostname` is still "h1."
   Server h1_other;
@@ -136,6 +168,10 @@ TEST_F(GossipFailureDetectorTests, create) {
   detector_->AddNeighbor(h1_other);
 
   ASSERT_EQ(2, server.alive_size());
+
+  ASSERT_EQ(2, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 }
 
 TEST_F(GossipFailureDetectorTests, addNeighbors) {
@@ -150,9 +186,17 @@ TEST_F(GossipFailureDetectorTests, addNeighbors) {
 
   ASSERT_EQ(2, server.alive_size());
 
+  ASSERT_EQ(2, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
+
   std::shared_ptr<Server> server3 = MakeServer("another.example.com", 4456);
   detector_->AddNeighbor(*server3);
   ASSERT_EQ(3, server.alive_size());
+
+  ASSERT_EQ(3, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 }
 
 TEST_F(GossipFailureDetectorTests, DISABLED_prepareReport) {
@@ -166,6 +210,10 @@ TEST_F(GossipFailureDetectorTests, DISABLED_prepareReport) {
   ASSERT_EQ(3, report.alive_size());
   ASSERT_EQ(0, report.suspected_size());
 
+  ASSERT_EQ(3, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
+
   // We need to cast-away const-ness, so that we can mutate the list of alive
   // and suspected servers.
   // Generally speaking, this is **thread-unsafe** but here we can, as we can be
@@ -177,4 +225,8 @@ TEST_F(GossipFailureDetectorTests, DISABLED_prepareReport) {
   report = detector_->gossip_server().PrepareReport();
   ASSERT_EQ(2, report.alive_size());
   ASSERT_EQ(1, report.suspected_size());
+
+  ASSERT_EQ(3, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 }

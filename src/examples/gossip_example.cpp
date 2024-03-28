@@ -167,7 +167,7 @@ int main(int argc, const char *argv[]) {
   try {
 
     detector = std::make_shared<GossipFailureDetector>(
-        port, std::chrono::milliseconds{ping_interval_msec},
+        std::nullopt, port, std::chrono::milliseconds{ping_interval_msec},
         std::chrono::milliseconds{grace_period_msec},
         std::chrono::milliseconds{ping_timeout_msec});
 

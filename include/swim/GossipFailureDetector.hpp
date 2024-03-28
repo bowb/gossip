@@ -7,6 +7,7 @@
 #include <chrono>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <set>
 
 #include "SwimCommon.hpp"
@@ -54,6 +55,11 @@ class GossipFailureDetector {
    * be sent.
    */
   milliseconds ping_timeout_{};
+
+  /**
+   * Callback when a record is added/deleted or suspected
+   */
+  std::optional<ServerStatusFunc> statusCb;
 
   /**
    * When sending reports (and probing neighbors' health) we will send this many
@@ -106,14 +112,16 @@ public:
    * server to come back
    * @param ping_timeout_msec the time, in milliseconds, we will wait for the
    * ping response
+   * @param statusCb called when records are updated
    */
   explicit GossipFailureDetector(
+      std::optional<ServerStatusFunc> statusCb = std::nullopt,
       unsigned short port = kDefaultPort,
       const std::chrono::milliseconds interval = kDefaultPingIntervalMsec,
       const std::chrono::milliseconds grace_period = kDefaultGracePeriodMsec,
       const std::chrono::milliseconds ping_timeout_msec = kDefaultTimeoutMsec)
       : update_round_interval_(interval), grace_period_(grace_period),
-        ping_timeout_(ping_timeout_msec) {
+        ping_timeout_(ping_timeout_msec), statusCb(statusCb) {
     VLOG(2) << "GossipFailureDetector (port: " << port
             << ", interval_msec: " << interval.count()
             << ", grace_period_msec: " << grace_period.count()
@@ -121,7 +129,7 @@ public:
     num_reports_ = kDefaultNumReports;
     num_forwards_ = kDefaultNumForward;
 
-    gossip_server_.reset(new SwimServer(port));
+    gossip_server_.reset(new SwimServer(port, statusCb));
 
     VLOG(2) << "Starting SwimServer on port: " << port;
     std::thread t([this] { gossip_server_->start(); });

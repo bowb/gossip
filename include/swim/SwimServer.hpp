@@ -5,12 +5,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <glog/logging.h>
 #include <iomanip>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
-
-#include <glog/logging.h>
 
 #include "SwimClient.hpp"
 #include "SwimCommon.hpp"
@@ -45,6 +45,7 @@ class SwimServer {
   unsigned int num_threads_;
   std::atomic<bool> stopped_;
   std::chrono::milliseconds polling_interval_;
+  std::optional<ServerStatusFunc> statusCb;
 
   /**
    * The list of servers that we deem to be healthy (they responded to a ping
@@ -143,10 +144,12 @@ public:
   static const unsigned int kNumThreads = 5;
 
   SwimServer(
-      unsigned short port, unsigned int threads = kNumThreads,
+      unsigned short port,
+      std::optional<ServerStatusFunc> statusCb = std::nullopt,
+      unsigned int threads = kNumThreads,
       std::chrono::milliseconds polling_interval = kDefaultPollingIntervalMsec)
       : port_(port), num_threads_(threads), stopped_(true),
-        polling_interval_(polling_interval) {}
+        polling_interval_(polling_interval), statusCb(statusCb) {}
 
   virtual ~SwimServer() {
     int retry_count = 5;

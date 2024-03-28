@@ -25,14 +25,34 @@ namespace http = api::rest::http;
 class IntegrationTests : public ::testing::Test {
 protected:
   std::shared_ptr<GossipFailureDetector> detector;
+  int aliveReceivedCount;
+  int suspectReceivedCount;
+  int suspectRemovedCount;
 
   void SetUp() override {
+    aliveReceivedCount = 0;
+    suspectReceivedCount = 0;
+    suspectRemovedCount = 0;
+
     // The intervals, timeouts etc. configured here are just for convenience's
     // sake: if a test requires different timings, just stop the threads, change
     // the values, then restart the background threads:
     //
     // detector
     detector.reset(new GossipFailureDetector(
+        [this](std::shared_ptr<ServerRecord>, ServerStatus status) {
+          if (ServerStatus::alive == status) {
+            aliveReceivedCount++;
+          }
+
+          if (ServerStatus::suspect == status) {
+            suspectReceivedCount++;
+          }
+
+          if (ServerStatus::removed == status) {
+            suspectRemovedCount++;
+          }
+        },
         ::tests::RandomPort(),
         1000ms, // time between reports
         2000ms, // grace period, dictates length of tests, must not be too long.
@@ -60,17 +80,46 @@ protected:
 
 TEST_F(IntegrationTests, detectFailingNeighbor) {
 
-  auto neighbor =
-      std::unique_ptr<SwimServer>(new SwimServer(::tests::RandomPort()));
+  int neighborAliveReceivedCount = 0;
+  int neighborSuspectReceivedCount = 0;
+  int neighborSuspectRemovedCount = 0;
+
+  auto neighbor = std::unique_ptr<SwimServer>(
+      new SwimServer(::tests::RandomPort(),
+                     [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
+                       if (ServerStatus::alive == status) {
+                         neighborAliveReceivedCount++;
+                       }
+
+                       if (ServerStatus::suspect == status) {
+                         neighborSuspectReceivedCount++;
+                       }
+
+                       if (ServerStatus::removed == status) {
+                         neighborSuspectRemovedCount++;
+                       }
+                     }));
   std::thread neighbor_thread([&neighbor]() { neighbor->start(); });
 
   detector->AddNeighbor(neighbor->self());
   EXPECT_EQ(1, server().alive_size());
 
+  ASSERT_EQ(1, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
+
+  ASSERT_EQ(0, neighborAliveReceivedCount);
+  ASSERT_EQ(0, neighborSuspectReceivedCount);
+  ASSERT_EQ(0, neighborSuspectRemovedCount);
+
   // Give other background threads a chance to do work, and verify the neighbor
   // is still alive.
   std::this_thread::sleep_for(seconds(2));
   EXPECT_EQ(1, server().alive_size());
+
+  ASSERT_EQ(1, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 
   neighbor->stop();
   EXPECT_FALSE(neighbor->isRunning());
@@ -80,9 +129,21 @@ TEST_F(IntegrationTests, detectFailingNeighbor) {
   std::this_thread::sleep_for(seconds(2));
   EXPECT_EQ(1, server().suspected_size());
 
+  ASSERT_EQ(1, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
+
   // Now, wait long enough for the stopped server to be evicted.
   std::this_thread::sleep_for(seconds(3));
   EXPECT_TRUE(server().suspected_empty());
+
+  ASSERT_EQ(1, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
+  ASSERT_EQ(1, suspectRemovedCount);
+
+  ASSERT_EQ(1, neighborAliveReceivedCount);
+  ASSERT_EQ(0, neighborSuspectReceivedCount);
+  ASSERT_EQ(0, neighborSuspectRemovedCount);
 }
 
 TEST_F(IntegrationTests, gossipSpreads) {
@@ -95,8 +156,25 @@ TEST_F(IntegrationTests, gossipSpreads) {
   ASSERT_TRUE(detector->gossip_server().isRunning());
   detector->InitAllBackgroundThreads();
 
-  auto neighbor =
-      std::unique_ptr<SwimServer>(new SwimServer(::tests::RandomPort()));
+  int neighborAliveReceivedCount = 0;
+  int neighborSuspectReceivedCount = 0;
+  int neighborSuspectRemovedCount = 0;
+
+  auto neighbor = std::unique_ptr<SwimServer>(
+      new SwimServer(::tests::RandomPort(),
+                     [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
+                       if (ServerStatus::alive == status) {
+                         neighborAliveReceivedCount++;
+                       }
+
+                       if (ServerStatus::suspect == status) {
+                         neighborSuspectReceivedCount++;
+                       }
+
+                       if (ServerStatus::removed == status) {
+                         neighborSuspectRemovedCount++;
+                       }
+                     }));
   std::thread neighbor_thread([&]() { neighbor->start(); });
 
   auto flaky =
@@ -133,6 +211,14 @@ TEST_F(IntegrationTests, gossipSpreads) {
   std::this_thread::sleep_for(seconds(2));
   ASSERT_EQ(1, server().suspected_size());
 
+  ASSERT_EQ(2, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
+
+  ASSERT_EQ(2, neighborAliveReceivedCount);
+  ASSERT_EQ(1, neighborSuspectReceivedCount);
+  ASSERT_EQ(0, neighborSuspectRemovedCount);
+
   // It should now be suspected, but still the grace period should have not
   // expired.
   std::this_thread::sleep_for(seconds(1));
@@ -147,12 +233,38 @@ TEST_F(IntegrationTests, gossipSpreads) {
   std::this_thread::sleep_for(seconds(5));
   EXPECT_TRUE(server().alive_empty());
   EXPECT_TRUE(server().suspected_empty());
+
+  ASSERT_EQ(2, aliveReceivedCount);
+  ASSERT_EQ(2, suspectReceivedCount);
+  ASSERT_EQ(2, suspectRemovedCount);
+
+  ASSERT_EQ(2, neighborAliveReceivedCount);
+  ASSERT_EQ(1, neighborSuspectReceivedCount);
+  ASSERT_EQ(0, neighborSuspectRemovedCount);
 }
 
 TEST_F(IntegrationTests, canStopThreads) {
   std::vector<std::unique_ptr<SwimServer>> neighbors{};
+  std::atomic<int> neighborAliveReceivedCount{0};
+  std::atomic<int> neighborSuspectReceivedCount{0};
+  std::atomic<int> neighborSuspectRemovedCount{0};
+
   for (int i = 0; i < 5; ++i) {
-    auto neighbor = new SwimServer(::tests::RandomPort());
+    auto neighbor =
+        new SwimServer(::tests::RandomPort(),
+                       [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
+                         if (ServerStatus::alive == status) {
+                           neighborAliveReceivedCount++;
+                         }
+
+                         if (ServerStatus::suspect == status) {
+                           neighborSuspectReceivedCount++;
+                         }
+
+                         if (ServerStatus::removed == status) {
+                           neighborSuspectRemovedCount++;
+                         }
+                       });
     std::thread neighbor_thread([&]() { neighbor->start(); });
     neighbor_thread.detach();
 
@@ -166,6 +278,14 @@ TEST_F(IntegrationTests, canStopThreads) {
   std::this_thread::sleep_for(seconds(6));
   EXPECT_EQ(5, server().alive_size());
 
+  ASSERT_EQ(5, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
+
+  ASSERT_EQ(25, neighborAliveReceivedCount);
+  ASSERT_EQ(0, neighborSuspectReceivedCount);
+  ASSERT_EQ(0, neighborSuspectRemovedCount);
+
   // Stopping the background threads will cause the alive/suspected to stay
   // frozen where they are now.
   detector->StopAllBackgroundThreads();
@@ -177,10 +297,26 @@ TEST_F(IntegrationTests, canStopThreads) {
   std::this_thread::sleep_for(seconds(3));
   EXPECT_EQ(5, server().alive_size());
 
+  ASSERT_EQ(5, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
+
+  ASSERT_EQ(25, neighborAliveReceivedCount);
+  ASSERT_EQ(0, neighborSuspectReceivedCount);
+  ASSERT_EQ(0, neighborSuspectRemovedCount);
+
   // Now, when we restart, we should pretty soon find out they're all gone.
   detector->InitAllBackgroundThreads();
   std::this_thread::sleep_for(seconds(6));
   EXPECT_TRUE(server().alive_empty());
+
+  ASSERT_EQ(5, aliveReceivedCount);
+  ASSERT_EQ(5, suspectReceivedCount);
+  ASSERT_EQ(5, suspectRemovedCount);
+
+  ASSERT_EQ(25, neighborAliveReceivedCount);
+  ASSERT_EQ(0, neighborSuspectReceivedCount);
+  ASSERT_EQ(0, neighborSuspectRemovedCount);
 }
 
 // TODO: this is more of a test for ApiServer, should be moved to that project.

@@ -45,7 +45,7 @@ class TestServer : public SwimServer {
 
 public:
   explicit TestServer(unsigned short port)
-      : SwimServer(port, 1), wasUpdated_(false) {}
+      : SwimServer(port, std::nullopt, 1), wasUpdated_(false) {}
   virtual ~TestServer() = default;
 
   void OnUpdate(Server *client) override {
@@ -65,11 +65,32 @@ class SwimServerTests : public ::testing::Test {
 protected:
   std::shared_ptr<SwimServer> server_;
   std::unique_ptr<std::thread> thread_;
+  int aliveReceivedCount;
+  int suspectReceivedCount;
+  int suspectRemovedCount;
 
   SwimServerTests() {
+    aliveReceivedCount = 0;
+    suspectReceivedCount = 0;
+    suspectRemovedCount = 0;
+
     unsigned short port = tests::RandomPort();
     VLOG(2) << "TestFixture: creating server on port " << port;
-    server_.reset(new SwimServer(port));
+
+    server_.reset(new SwimServer(
+        port, [this](std::shared_ptr<ServerRecord>, ServerStatus status) {
+          if (ServerStatus::alive == status) {
+            aliveReceivedCount++;
+          }
+
+          if (ServerStatus::suspect == status) {
+            suspectReceivedCount++;
+          }
+
+          if (ServerStatus::removed == status) {
+            suspectRemovedCount++;
+          }
+        }));
   }
 
   void TearDown() override {
@@ -182,7 +203,6 @@ TEST_F(SwimServerTests, destructorStopsServer) {
 
 TEST_F(SwimServerTests, receiveReport) {
   ASSERT_NO_FATAL_FAILURE(runServer()) << "Could not get the server started";
-
   ASSERT_TRUE(server_->isRunning());
   auto svr = MakeServer("localhost", server_->port());
   SwimClient client(*svr, 9200);
@@ -209,11 +229,13 @@ TEST_F(SwimServerTests, receiveReport) {
   ASSERT_TRUE(client.Send(report));
   ASSERT_EQ(2, server_->alive_size());
   ASSERT_EQ(1, server_->suspected_size());
+  ASSERT_EQ(2, SwimServerTests::aliveReceivedCount);
+  ASSERT_EQ(1, SwimServerTests::suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 }
 
 TEST_F(SwimServerTests, receiveReportMany) {
   ASSERT_NO_FATAL_FAILURE(runServer()) << "Could not get the server started";
-
   ASSERT_TRUE(server_->isRunning());
   auto svr = MakeServer("localhost", server_->port());
   SwimClient client(*svr, 9200);
@@ -244,6 +266,10 @@ TEST_F(SwimServerTests, receiveReportMany) {
   ASSERT_TRUE(client.Send(report));
   ASSERT_EQ(11, server_->alive_size());
   ASSERT_EQ(5, server_->suspected_size());
+
+  ASSERT_EQ(11, aliveReceivedCount);
+  ASSERT_EQ(5, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 }
 
 TEST_F(SwimServerTests, reconcileReports) {
@@ -266,6 +292,9 @@ TEST_F(SwimServerTests, reconcileReports) {
   ASSERT_EQ(1, server_->alive_size());
   ASSERT_EQ(1, server_->suspected_size());
 
+  ASSERT_EQ(1, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
+
   // Make some time pass so that timestamps genuinely differ.
   std::this_thread::sleep_for(seconds(1));
 
@@ -279,6 +308,10 @@ TEST_F(SwimServerTests, reconcileReports) {
   ASSERT_TRUE(client.Send(report));
   ASSERT_EQ(2, server_->alive_size());
   ASSERT_EQ(0, server_->suspected_size());
+
+  ASSERT_EQ(2, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
+  ASSERT_EQ(1, suspectRemovedCount);
 }
 
 TEST_F(SwimServerTests, ignoreStaleReports) {
@@ -301,6 +334,9 @@ TEST_F(SwimServerTests, ignoreStaleReports) {
   ASSERT_EQ(1, server_->alive_size());
   ASSERT_EQ(1, server_->suspected_size());
 
+  ASSERT_EQ(1, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
+
   report.clear_suspected();
 
   two = report.mutable_alive()->Add();
@@ -313,6 +349,10 @@ TEST_F(SwimServerTests, ignoreStaleReports) {
   ASSERT_TRUE(client.Send(report));
   ASSERT_EQ(1, server_->alive_size());
   ASSERT_EQ(1, server_->suspected_size());
+
+  ASSERT_EQ(1, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 }
 
 TEST_F(SwimServerTests, ignoreStaleReports2) {
@@ -335,6 +375,10 @@ TEST_F(SwimServerTests, ignoreStaleReports2) {
   ASSERT_EQ(2, server_->alive_size());
   ASSERT_EQ(0, server_->suspected_size());
 
+  ASSERT_EQ(2, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
+
   report.clear_suspected();
 
   two = report.mutable_suspected()->Add();
@@ -347,6 +391,10 @@ TEST_F(SwimServerTests, ignoreStaleReports2) {
   ASSERT_TRUE(client.Send(report));
   ASSERT_EQ(2, server_->alive_size());
   ASSERT_EQ(0, server_->suspected_size());
+
+  ASSERT_EQ(2, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 }
 
 TEST_F(SwimServerTests, servesPingRequests) {
@@ -375,6 +423,10 @@ TEST_F(SwimServerTests, servesPingRequests) {
   const ServerRecord &record = report.suspected(0);
 
   ASSERT_EQ(*MakeServer("fakeserver", 9098), record.server());
+
+  ASSERT_EQ(1, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 }
 
 TEST_F(SwimServerTests, canRestart) {
@@ -430,9 +482,59 @@ TEST(SwimProtocolTests, testForwarding) {
        forwarder_port = ::tests::RandomPort(),
        suspected_port = ::tests::RandomPort();
 
-  SwimServer sender(sender_port);
-  SwimServer forwarder(forwarder_port);
-  SwimServer suspected(suspected_port);
+  int senderAliveReceivedCount = 0;
+  int senderSuspectReceivedCount = 0;
+  int senderRemovedReceivedCount = 0;
+  SwimServer sender(sender_port,
+                    [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
+                      if (ServerStatus::alive == status) {
+                        senderAliveReceivedCount++;
+                      }
+
+                      if (ServerStatus::suspect == status) {
+                        senderSuspectReceivedCount++;
+                      }
+
+                      if (ServerStatus::removed == status) {
+                        senderRemovedReceivedCount++;
+                      }
+                    });
+
+  int forwarderAliveReceivedCount = 0;
+  int forwarderSuspectReceivedCount = 0;
+  int forwarderRemovedReceivedCount = 0;
+  SwimServer forwarder(forwarder_port,
+                       [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
+                         if (ServerStatus::alive == status) {
+                           forwarderAliveReceivedCount++;
+                         }
+
+                         if (ServerStatus::suspect == status) {
+                           forwarderSuspectReceivedCount++;
+                         }
+
+                         if (ServerStatus::removed == status) {
+                           forwarderRemovedReceivedCount++;
+                         }
+                       });
+
+  int suspectedAliveReceivedCount = 0;
+  int suspectedSuspectReceivedCount = 0;
+  int suspectedRemovedReceivedCount = 0;
+  SwimServer suspected(suspected_port,
+                       [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
+                         if (ServerStatus::alive == status) {
+                           suspectedAliveReceivedCount++;
+                         }
+
+                         if (ServerStatus::suspect == status) {
+                           suspectedSuspectReceivedCount++;
+                         }
+
+                         if (ServerStatus::removed == status) {
+                           suspectedRemovedReceivedCount++;
+                         }
+                       });
 
   for (auto server : {&sender, &forwarder, &suspected}) {
     std::thread t([&server]() { server->start(); });
@@ -453,8 +555,32 @@ TEST(SwimProtocolTests, testForwarding) {
   ASSERT_EQ(1, report.suspected_size());
   ASSERT_EQ(suspected.self(), report.suspected(0).server());
 
+  ASSERT_EQ(0, senderAliveReceivedCount);
+  ASSERT_EQ(1, senderSuspectReceivedCount);
+  ASSERT_EQ(0, senderRemovedReceivedCount);
+
+  ASSERT_EQ(0, forwarderAliveReceivedCount);
+  ASSERT_EQ(0, forwarderSuspectReceivedCount);
+  ASSERT_EQ(0, forwarderRemovedReceivedCount);
+
+  ASSERT_EQ(0, suspectedAliveReceivedCount);
+  ASSERT_EQ(0, suspectedSuspectReceivedCount);
+  ASSERT_EQ(0, suspectedRemovedReceivedCount);
+
   SwimClient client(forwarder.self(), sender_port);
   ASSERT_TRUE(client.RequestPing(dest));
+
+  ASSERT_EQ(0, senderAliveReceivedCount);
+  ASSERT_EQ(1, senderSuspectReceivedCount);
+  ASSERT_EQ(0, senderRemovedReceivedCount);
+
+  ASSERT_EQ(1, forwarderAliveReceivedCount);
+  ASSERT_EQ(0, forwarderSuspectReceivedCount);
+  ASSERT_EQ(0, forwarderRemovedReceivedCount);
+
+  ASSERT_EQ(0, suspectedAliveReceivedCount);
+  ASSERT_EQ(0, suspectedSuspectReceivedCount);
+  ASSERT_EQ(0, suspectedRemovedReceivedCount);
 
   // Upon the "suspected" hearing about the unfair assessment, it should set the
   // record straight.
@@ -464,6 +590,18 @@ TEST(SwimProtocolTests, testForwarding) {
         return report.suspected_size() == 0 && report.alive_size() == 1;
       },
       std::chrono::milliseconds(250));
+
+  ASSERT_EQ(1, senderAliveReceivedCount);
+  ASSERT_EQ(1, senderSuspectReceivedCount);
+  ASSERT_EQ(1, senderRemovedReceivedCount);
+
+  ASSERT_EQ(1, forwarderAliveReceivedCount);
+  ASSERT_EQ(0, forwarderSuspectReceivedCount);
+  ASSERT_EQ(0, forwarderRemovedReceivedCount);
+
+  ASSERT_EQ(1, suspectedAliveReceivedCount);
+  ASSERT_EQ(0, suspectedSuspectReceivedCount);
+  ASSERT_EQ(0, suspectedRemovedReceivedCount);
 }
 
 TEST(SwimProtocolTests, testForwardingStaysSuspected) {
@@ -471,9 +609,59 @@ TEST(SwimProtocolTests, testForwardingStaysSuspected) {
        forwarder_port = ::tests::RandomPort(),
        suspected_port = ::tests::RandomPort();
 
-  SwimServer sender(sender_port);
-  SwimServer forwarder(forwarder_port);
-  SwimServer suspected(suspected_port);
+  int senderAliveReceivedCount = 0;
+  int senderSuspectReceivedCount = 0;
+  int senderRemovedReceivedCount = 0;
+  SwimServer sender(sender_port,
+                    [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
+                      if (ServerStatus::alive == status) {
+                        senderAliveReceivedCount++;
+                      }
+
+                      if (ServerStatus::suspect == status) {
+                        senderSuspectReceivedCount++;
+                      }
+
+                      if (ServerStatus::removed == status) {
+                        senderRemovedReceivedCount++;
+                      }
+                    });
+
+  int forwarderAliveReceivedCount = 0;
+  int forwarderSuspectReceivedCount = 0;
+  int forwarderRemovedReceivedCount = 0;
+  SwimServer forwarder(forwarder_port,
+                       [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
+                         if (ServerStatus::alive == status) {
+                           forwarderAliveReceivedCount++;
+                         }
+
+                         if (ServerStatus::suspect == status) {
+                           forwarderSuspectReceivedCount++;
+                         }
+
+                         if (ServerStatus::removed == status) {
+                           forwarderRemovedReceivedCount++;
+                         }
+                       });
+
+  int suspectedAliveReceivedCount = 0;
+  int suspectedSuspectReceivedCount = 0;
+  int suspectedRemovedReceivedCount = 0;
+  SwimServer suspected(suspected_port,
+                       [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
+                         if (ServerStatus::alive == status) {
+                           suspectedAliveReceivedCount++;
+                         }
+
+                         if (ServerStatus::suspect == status) {
+                           suspectedSuspectReceivedCount++;
+                         }
+
+                         if (ServerStatus::removed == status) {
+                           suspectedRemovedReceivedCount++;
+                         }
+                       });
 
   // We are not starting the "suspected"; that one's a-goner.
   for (auto server : {&sender, &forwarder}) {
@@ -483,6 +671,18 @@ TEST(SwimProtocolTests, testForwardingStaysSuspected) {
                            std::chrono::milliseconds(200));
   }
   sender.ReportSuspected(suspected.self(), ::utils::CurrentTime());
+
+  ASSERT_EQ(0, senderAliveReceivedCount);
+  ASSERT_EQ(1, senderSuspectReceivedCount);
+  ASSERT_EQ(0, senderRemovedReceivedCount);
+
+  ASSERT_EQ(0, forwarderAliveReceivedCount);
+  ASSERT_EQ(0, forwarderSuspectReceivedCount);
+  ASSERT_EQ(0, forwarderRemovedReceivedCount);
+
+  ASSERT_EQ(0, suspectedAliveReceivedCount);
+  ASSERT_EQ(0, suspectedSuspectReceivedCount);
+  ASSERT_EQ(0, suspectedRemovedReceivedCount);
 
   // This is necessary, as `set_allocated_xxx()` will cause PB to take ownership
   // of the pointer, and deallocate it when done (which is what will happen when
@@ -498,6 +698,18 @@ TEST(SwimProtocolTests, testForwardingStaysSuspected) {
   SwimClient client(forwarder.self(), sender_port);
   ASSERT_TRUE(client.RequestPing(dest));
 
+  ASSERT_EQ(0, senderAliveReceivedCount);
+  ASSERT_EQ(1, senderSuspectReceivedCount);
+  ASSERT_EQ(0, senderRemovedReceivedCount);
+
+  ASSERT_EQ(1, forwarderAliveReceivedCount);
+  ASSERT_EQ(0, forwarderSuspectReceivedCount);
+  ASSERT_EQ(0, forwarderRemovedReceivedCount);
+
+  ASSERT_EQ(0, suspectedAliveReceivedCount);
+  ASSERT_EQ(0, suspectedSuspectReceivedCount);
+  ASSERT_EQ(0, suspectedRemovedReceivedCount);
+
   // Now, the news has spread to the "forwarder," and stays like that at the
   // "sender."
   ::tests::WaitAtMostFor(
@@ -507,4 +719,16 @@ TEST(SwimProtocolTests, testForwardingStaysSuspected) {
         return report.suspected_size() == 1 && report2.suspected_size() == 1;
       },
       std::chrono::milliseconds(250));
+
+  ASSERT_EQ(0, senderAliveReceivedCount);
+  ASSERT_EQ(1, senderSuspectReceivedCount);
+  ASSERT_EQ(0, senderRemovedReceivedCount);
+
+  ASSERT_EQ(1, forwarderAliveReceivedCount);
+  ASSERT_EQ(1, forwarderSuspectReceivedCount);
+  ASSERT_EQ(0, forwarderRemovedReceivedCount);
+
+  ASSERT_EQ(0, suspectedAliveReceivedCount);
+  ASSERT_EQ(0, suspectedSuspectReceivedCount);
+  ASSERT_EQ(0, suspectedRemovedReceivedCount);
 }

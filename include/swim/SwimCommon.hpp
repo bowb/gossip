@@ -4,6 +4,7 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <iomanip>
 #include <mutex>
 #include <random>
@@ -17,6 +18,11 @@ using Timestamp = system_clock::time_point;
 using namespace std::chrono_literals;
 
 namespace swim {
+
+enum class ServerStatus { uknouwn = 0, alive, suspect, removed };
+
+using ServerStatusFunc =
+    std::function<void(std::shared_ptr<ServerRecord>, ServerStatus)>;
 
 ////  Mark: Constants
 
