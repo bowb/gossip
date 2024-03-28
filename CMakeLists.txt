@@ -143,6 +143,7 @@ add_library(apiserver STATIC ${API_SERVER_SOURCES})
 target_link_libraries(apiserver PRIVATE Boost::Boost)
 
 # Unit tests build is defined in the tests/ folder
+enable_testing()
 add_subdirectory(${TESTS_DIR})
 
 #

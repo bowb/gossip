@@ -1,7 +1,4 @@
 # This file (c) 2016-2017 AlertAvert.com.  All rights reserved.
-
-project(gossip_test)
-enable_testing()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -fPIC")
 
 # Conan Packaging support
