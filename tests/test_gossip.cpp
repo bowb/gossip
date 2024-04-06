@@ -6,6 +6,7 @@
 #include <thread>
 
 #include <glog/logging.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "../include/swim/GossipFailureDetector.hpp"
@@ -15,6 +16,7 @@
 #include "tests.h"
 
 using namespace swim;
+using ::testing::IsSubsetOf;
 
 // Simple implementation of factory method.
 namespace swim {
@@ -89,6 +91,37 @@ protected:
         port_, 10000ms, 500ms, 5ms));
   }
 };
+
+TEST_F(GossipFailureDetectorTests, getUniqueNeighborsRoundRobin) {
+  ASSERT_TRUE(tests::WaitAtMostFor(
+      [&]() -> bool { return detector_->gossip_server().isRunning(); },
+      std::chrono::milliseconds(2000)))
+      << "Detector didn't start";
+  auto &server = detector_->gossip_server();
+
+  ASSERT_TRUE(server.alive_empty());
+  for (int i = 0; i < 10; ++i) {
+    SwimClient client(
+        *MakeServer("localhost", detector_->gossip_server().port()),
+        tests::RandomPort());
+    ASSERT_TRUE(client.Ping());
+  }
+
+  auto neighbors = detector_->GetUniqueNeighbors(10, true);
+  ASSERT_EQ(10, neighbors.size());
+
+  neighbors = detector_->GetUniqueNeighbors(100, true);
+  ASSERT_EQ(10, neighbors.size());
+
+  neighbors = detector_->GetUniqueNeighbors(11, true);
+  ASSERT_EQ(10, neighbors.size());
+
+  neighbors = detector_->GetUniqueNeighbors(1, true);
+  ASSERT_EQ(1, neighbors.size());
+
+  neighbors = detector_->GetUniqueNeighbors(0);
+  ASSERT_EQ(0, neighbors.size());
+}
 
 TEST_F(GossipFailureDetectorTests, updatesAlives) {
 

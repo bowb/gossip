@@ -18,6 +18,8 @@ using namespace std::chrono;
 
 namespace swim {
 
+enum class ReportType { FULL = 0, SINGLE = 1 };
+
 /**
  * A failure detector that implements the [SWIM protocol](https://goo.gl/VUn4iQ)
  *
@@ -72,6 +74,12 @@ class GossipFailureDetector {
    * `num_forwards_` neighbors to try and contact it on our behalf.
    */
   unsigned int num_forwards_;
+
+  /**
+   * Current round robin index tracking.
+   *
+   */
+  unsigned long round_robin_index_;
 
 private:
   /**
@@ -128,6 +136,7 @@ public:
             << ", ping_timeout_msec: " << ping_timeout_msec.count() << ")";
     num_reports_ = kDefaultNumReports;
     num_forwards_ = kDefaultNumForward;
+    round_robin_index_ = 0;
 
     gossip_server_.reset(new SwimServer(port, statusCb));
 
@@ -278,7 +287,19 @@ public:
    * one at random from the set</li>
    * </ul>
    */
-  void SendReport() const;
+  void SendReport(ReportType type = ReportType::FULL);
+
+  /**
+   * @brief send the report to the cleint
+   *
+   * @param client
+   * @param report
+   * @param other
+   * @return true
+   * @return false
+   */
+  bool SendReport(SwimClient &client, const SwimReport &report,
+                  const Server &other);
 
   /**
    * Scan the set of `suspected()` servers: if any has been there for longer
@@ -291,8 +312,9 @@ public:
    *
    * @param k the number of servers we seek at most (it may be less, if the
    * `alive` size is less than `k`)
+   * @param roundRobin do a roundRobin of selecting neighboring servers
    * @return a set of at most `k` neighboring servers, known to be healthy.
    */
-  std::set<Server> GetUniqueNeighbors(unsigned int k) const;
+  std::set<Server> GetUniqueNeighbors(unsigned int k, bool roundRobin = true);
 };
 } // namespace swim

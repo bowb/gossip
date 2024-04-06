@@ -43,6 +43,13 @@ void GossipFailureDetector::InitAllBackgroundThreads() {
 
   threads_.push_back(std::make_unique<std::thread>([this]() {
     while (gossip_server().isRunning()) {
+      SendReport(ReportType::SINGLE);
+      std::this_thread::sleep_for(update_round_interval_);
+    }
+  }));
+
+  threads_.push_back(std::make_unique<std::thread>([this]() {
+    while (gossip_server().isRunning()) {
       GarbageCollectSuspected();
       std::this_thread::sleep_for(update_round_interval_);
     }
@@ -51,26 +58,70 @@ void GossipFailureDetector::InitAllBackgroundThreads() {
   LOG(INFO) << "All Gossiping threads for the SWIM Detector started";
 }
 
-std::set<Server>
-GossipFailureDetector::GetUniqueNeighbors(unsigned int k) const {
+std::set<Server> GossipFailureDetector::GetUniqueNeighbors(unsigned int k,
+                                                           bool roundRobin) {
   std::set<Server> others;
   unsigned int collisions = 0;
   const unsigned int kMaxCollisions = 3;
 
+  // round robin has found to be more performant
   int n = std::min(k, static_cast<unsigned int>(gossip_server_->alive_size()));
-  for (int i = 0; i < n; ++i) {
-    const Server other = gossip_server_->GetRandomNeighbor();
-    auto inserted = others.insert(other);
-    if (!inserted.second && ++collisions > kMaxCollisions) {
-      // We are hitting too many already randomly-picked neighbors, clearly the
-      // set is exhausted.
-      break;
+
+  if (roundRobin) {
+    for (int idx = 0; idx < n;) {
+      if (round_robin_index_ > gossip_server_->alive_size() - 1) {
+        round_robin_index_ = 0;
+      }
+      const Server other =
+          gossip_server_->GetNeighborByIndex(round_robin_index_++);
+      if (other == gossip_server_->self()) {
+        // get a different neighbor
+        continue;
+      }
+
+      others.insert(other);
+      idx++;
+    }
+  } else {
+    for (int i = 0; i < n; ++i) {
+      const Server other = gossip_server_->GetRandomNeighbor();
+      auto inserted = others.insert(other);
+      if (!inserted.second && ++collisions > kMaxCollisions) {
+        // We are hitting too many already randomly-picked neighbors, clearly
+        // the set is exhausted.
+        break;
+      }
     }
   }
   return others;
 }
 
-void GossipFailureDetector::SendReport() const {
+bool GossipFailureDetector::SendReport(SwimClient &client,
+                                       const SwimReport &report,
+                                       const Server &other) {
+  bool ret = client.Send(report);
+  if (!ret) {
+    // We managed to pick an unresponsive server; let's add to suspects.
+    LOG(WARNING) << "Report sending failed; adding " << other << " to suspects";
+    gossip_server_->ReportSuspected(other, ::utils::CurrentTime());
+    auto forwards = GetUniqueNeighbors(num_forwards_);
+    for (const auto &fwd : forwards) {
+      VLOG(2) << "Requesting " << fwd << " to ping " << other
+              << " on our behalf";
+      client = SwimClient(fwd, gossip_server_->port());
+
+      // This is required, as `RequestPing` takes ownership of the pointer and
+      // will dispose of it.
+      auto ps = new Server();
+      ps->CopyFrom(other);
+      client.RequestPing(ps);
+    }
+  }
+
+  return ret;
+}
+
+void GossipFailureDetector::SendReport(ReportType type) {
   if (gossip_server_->alive_empty()) {
     VLOG(2) << "No neighbors, skip sending report";
     return;
@@ -80,32 +131,24 @@ void GossipFailureDetector::SendReport() const {
   VLOG(2) << "Sending report, alive: " << report.alive_size()
           << "; suspected: " << report.suspected_size();
 
-  for (const auto &other : GetUniqueNeighbors(num_reports_)) {
-    auto client = SwimClient(other, gossip_server_->port());
-    VLOG(2) << "Sending report to " << other;
+  switch (type) {
+  case ReportType::FULL: {
+    for (const auto &other : GetUniqueNeighbors(num_reports_)) {
+      auto client = SwimClient(other, gossip_server_->port());
+      VLOG(2) << "Sending report to " << other;
 
-    if (!client.Send(report)) {
-      // We managed to pick an unresponsive server; let's add to suspects.
-      LOG(WARNING) << "Report sending failed; adding " << other
-                   << " to suspects";
-      gossip_server_->ReportSuspected(other, ::utils::CurrentTime());
-      auto forwards = GetUniqueNeighbors(num_forwards_);
-      for (const auto &fwd : forwards) {
-        VLOG(2) << "Requesting " << fwd << " to ping " << other
-                << " on our behalf";
-        client = SwimClient(fwd, gossip_server_->port());
-
-        // This is required, as `RequestPing` takes ownership of the pointer and
-        // will dispose of it.
-        auto ps = new Server();
-        ps->CopyFrom(other);
-        client.RequestPing(ps);
+      if (SendReport(client, report, other)) {
+        gossip_server_->AddAlive(other, ::utils::CurrentTime());
       }
-    } else {
-      // All is well, simply update the timestamp of when we last "saw" this
-      // healthy server.
+    }
+  } break;
+  case ReportType::SINGLE: {
+    const Server other = gossip_server_->GetRandomNeighbor();
+    auto client = SwimClient(other, gossip_server_->port());
+    if (SendReport(client, report, other)) {
       gossip_server_->AddAlive(other, ::utils::CurrentTime());
     }
+  } break;
   }
 }
 

@@ -40,6 +40,12 @@ inline double cost(long t) { return kTimeDecayConstant * t * t; }
 
 class SwimServer {
 
+  /**
+   * @brief update the incarnation when state of the server has changed
+   * currently not really tracking any state so...
+   *
+   */
+  uint64_t incarnation_;
   unsigned short port_;
   unsigned int num_threads_;
   std::atomic<bool> stopped_;
@@ -108,7 +114,7 @@ protected:
    * message to this server.
    *
    * <p>This is a callback method that will be invoked by the server's loop, in
-   * its own thread.
+   * its own thread. Will also be used to update state.
    *
    * @param sender the server that just sent the message; the callee obtains
    * ownership of the pointer and is responsible for freeing the memory.
@@ -147,7 +153,7 @@ public:
       std::optional<ServerStatusFunc> statusCb = std::nullopt,
       unsigned int threads = kNumThreads,
       std::chrono::milliseconds polling_interval = kDefaultPollingIntervalMsec)
-      : port_(port), num_threads_(threads), stopped_(true),
+      : incarnation_(0), port_(port), num_threads_(threads), stopped_(true),
         polling_interval_(polling_interval), statusCb(statusCb) {}
 
   virtual ~SwimServer();
@@ -222,6 +228,15 @@ public:
    * @throws `swim::empty_set` if the set of alive neighbors is empty.
    */
   Server GetRandomNeighbor() const;
+
+  /**
+   * @brief Get the Neighbor By Index o
+   *
+   * @param index
+   * @return Server
+   * @throws `swim::empty_set` if the set of alive neighbors is empty.
+   */
+  Server GetNeighborByIndex(unsigned long index) const;
 
   /**
    * Used to report a non-responding server.

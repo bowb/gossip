@@ -2,6 +2,7 @@
 // Created by M. Massenzio (marco@alertavert.com) on 11/22/16.
 
 #include <glog/logging.h>
+#include <set>
 #include <zmq.hpp>
 
 #include "swim/SwimServer.hpp"
@@ -155,6 +156,8 @@ SwimReport SwimServer::PrepareReport() const {
   std::vector<ServerRecord> records;
 
   report.mutable_sender()->CopyFrom(self());
+  report.mutable_sender()->set_incarnation(incarnation_);
+
   {
     mutex_guard lock(alive_mutex_);
 
@@ -201,6 +204,25 @@ void SwimServer::AddRecordsToBudget(SwimReport &report,
                                          : report.mutable_suspected()->Add();
     prec->CopyFrom(item);
   }
+}
+
+Server SwimServer::GetNeighborByIndex(unsigned long index) const {
+  auto size = alive_size();
+  if (size == 0) {
+    throw empty_set();
+  }
+
+  if (index > size) {
+    index = 0;
+  }
+
+  mutex_guard lock(alive_mutex_);
+  auto iterator = alive_.begin();
+  advance(iterator, index);
+
+  assert(iterator != alive_.end());
+
+  return (*iterator)->server();
 }
 
 Server SwimServer::GetRandomNeighbor() const {
@@ -326,8 +348,20 @@ void SwimServer::OnReport(Server *sender, SwimReport *report) {
       mutex_guard lock(suspected_mutex_);
       auto found = suspected_.find(MakeRecord(record.server()));
       if (found != suspected_.end() &&
-          (*found)->timestamp() > record.timestamp()) {
+              (*found)->timestamp() > record.timestamp() ||
+          (*found)->server().incarnation() > record.server().incarnation()) {
         continue;
+      }
+    }
+    {
+      mutex_guard lock(alive_mutex_);
+      auto found = alive_.find(MakeRecord(record.server()));
+      if (record.server().incarnation() > (*found)->server().incarnation()) {
+        // TODO:update other state
+        auto incarnation = record.server().incarnation();
+        auto update = alive_.extract(*found);
+        update.value()->mutable_server()->set_incarnation(incarnation);
+        alive_.insert(std::move(update));
       }
     }
     // This will either add a newly found healthy server; or simply update the
@@ -350,8 +384,20 @@ void SwimServer::OnReport(Server *sender, SwimReport *report) {
     {
       mutex_guard lock(alive_mutex_);
       auto found = alive_.find(MakeRecord(record.server()));
-      if (found != alive_.end() && (*found)->timestamp() > record.timestamp()) {
+      if (found != alive_.end() && (*found)->timestamp() > record.timestamp() ||
+          (*found)->server().incarnation() > record.server().incarnation()) {
         continue;
+      }
+    }
+    {
+      mutex_guard lock(suspected_mutex_);
+      auto found = suspected_.find(MakeRecord(record.server()));
+      if (record.server().incarnation() > (*found)->server().incarnation()) {
+        // TODO:update other state
+        auto incarnation = record.server().incarnation();
+        auto update = suspected_.extract(*found);
+        update.value()->mutable_server()->set_incarnation(incarnation);
+        suspected_.insert(std::move(update));
       }
     }
     ReportSuspected(record.server(), record.timestamp());

@@ -21,6 +21,8 @@ message Server {
     string hostname = 1;
     int32 port = 2;
     optional string ip_addr = 3;
+    // Incarnation number used to reconcile conflicting state
+    uint64 incarnation = 4;
 }
 
 
@@ -94,6 +96,9 @@ message SwimEnvelope {
         // their behalf; more info in the SWIM protocol document.
         // The payload must be `destination_server` message.
         STATUS_REQUEST = 3;
+
+        // Used by servers to only update their own state
+        STATUS_BROADCAST = 4;
     }
 
     // What type of message content will be enclosed in the "envelope"; receiving servers are
