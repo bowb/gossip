@@ -75,14 +75,17 @@ void SwimServer::start() {
         switch (message.type()) {
         case SwimEnvelope_Type_STATUS_UPDATE:
           VLOG(2) << "Received a STATUS_UPDATE message";
+          UpdateLamportTime(message.lamport_time());
           OnUpdate(message.release_sender());
           break;
         case SwimEnvelope_Type_STATUS_REPORT:
           VLOG(2) << "Received a STATUS_REPORT message";
+          UpdateLamportTime(message.lamport_time());
           OnReport(message.release_sender(), message.release_report());
           break;
         case SwimEnvelope_Type_STATUS_REQUEST:
           VLOG(2) << "Received a STATUS_REQUEST message";
+          UpdateLamportTime(message.lamport_time());
           OnForwardRequest(message.release_sender(),
                            message.release_destination_server());
           break;
@@ -113,7 +116,6 @@ const swim::Server SwimServer::self() const {
 }
 
 void SwimServer::OnForwardRequest(Server *sender, Server *destination) {
-
   // First off, the sender is alive and well.
   AddAlive(*sender, ::utils::CurrentTime());
 
@@ -136,12 +138,14 @@ void SwimServer::OnForwardRequest(Server *sender, Server *destination) {
     // By using the `allocated` versions of the setters we also ensure memory
     // will be freed upon destruction of the PB.
     report.set_allocated_sender(sender);
+
     auto record = ::swim::MakeRecord(*destination);
+
     report.mutable_suspected()->AddAllocated(record.release());
 
     // TODO: the timeout should be a property that we could set; for now using
     // the default value.
-    SwimClient client(*destination, port_);
+    SwimClient client(lamport_time_, *destination, port_);
 
     if (!client.Send(report)) {
       VLOG(2) << self() << ": Forwarded request to " << *destination
@@ -192,7 +196,7 @@ void SwimServer::AddRecordsToBudget(SwimReport &report,
   // first.
   sort(records.begin(), records.end(),
        [](const ServerRecord &r1, const ServerRecord &r2) {
-         return r1.timestamp() > r2.timestamp();
+         return r1.lamport_time() > r2.lamport_time();
        });
 
   for (const auto &item : records) {
@@ -259,6 +263,7 @@ bool SwimServer::ReportSuspected(const Server &server,
   size_t num{0};
   std::shared_ptr<ServerRecord> suspectRecord = MakeRecord(server);
   suspectRecord->set_timestamp(timestamp);
+  suspectRecord->set_lamport_time(lamport_time_);
 
   // First remove it from the alive set, if there.
   {
@@ -293,6 +298,7 @@ bool SwimServer::AddAlive(const Server &server, google::uint64 timestamp) {
 
   std::shared_ptr<ServerRecord> aliveRecord = MakeRecord(server);
   aliveRecord->set_timestamp(timestamp);
+  aliveRecord->set_lamport_time(lamport_time_);
 
   bool inserted = false;
   {
@@ -306,6 +312,7 @@ bool SwimServer::AddAlive(const Server &server, google::uint64 timestamp) {
     auto pr = alive_.find(aliveRecord);
     if (pr != alive_.end()) {
       (*pr)->set_timestamp(timestamp);
+      (*pr)->set_lamport_time(lamport_time_);
     }
   }
 
@@ -347,16 +354,22 @@ void SwimServer::OnReport(Server *sender, SwimReport *report) {
     {
       mutex_guard lock(suspected_mutex_);
       auto found = suspected_.find(MakeRecord(record.server()));
+
       if (found != suspected_.end() &&
-              (*found)->timestamp() > record.timestamp() ||
-          (*found)->server().incarnation() > record.server().incarnation()) {
+          (*found)->lamport_time() > record.lamport_time()) {
         continue;
       }
     }
+
+    // This will either add a newly found healthy server; or simply update the
+    // timestamp for one we already knew about.
+    AddAlive(record.server(), record.timestamp());
+
     {
       mutex_guard lock(alive_mutex_);
       auto found = alive_.find(MakeRecord(record.server()));
-      if (record.server().incarnation() > (*found)->server().incarnation()) {
+      if (found != alive_.end() &&
+          (record.server().incarnation() > (*found)->server().incarnation())) {
         // TODO:update other state
         auto incarnation = record.server().incarnation();
         auto update = alive_.extract(*found);
@@ -364,9 +377,6 @@ void SwimServer::OnReport(Server *sender, SwimReport *report) {
         alive_.insert(std::move(update));
       }
     }
-    // This will either add a newly found healthy server; or simply update the
-    // timestamp for one we already knew about.
-    AddAlive(record.server(), record.timestamp());
   }
 
   for (const auto &record : report->suspected()) {
@@ -374,7 +384,7 @@ void SwimServer::OnReport(Server *sender, SwimReport *report) {
       // Reports of our death were greatly exaggerated.
       VLOG(2) << self() << ": " << report->sender()
               << " reported this server as 'suspected' pinging";
-      SwimClient client(report->sender(), port_);
+      SwimClient client(lamport_time_, report->sender(), port_);
       client.Ping();
       continue;
     }
@@ -384,15 +394,19 @@ void SwimServer::OnReport(Server *sender, SwimReport *report) {
     {
       mutex_guard lock(alive_mutex_);
       auto found = alive_.find(MakeRecord(record.server()));
-      if (found != alive_.end() && (*found)->timestamp() > record.timestamp() ||
-          (*found)->server().incarnation() > record.server().incarnation()) {
+      if (found != alive_.end() &&
+          (*found)->lamport_time() > record.lamport_time()) {
         continue;
       }
     }
+
+    ReportSuspected(record.server(), record.timestamp());
+
     {
       mutex_guard lock(suspected_mutex_);
       auto found = suspected_.find(MakeRecord(record.server()));
-      if (record.server().incarnation() > (*found)->server().incarnation()) {
+      if (found != suspected_.end() &&
+          (record.server().incarnation() > (*found)->server().incarnation())) {
         // TODO:update other state
         auto incarnation = record.server().incarnation();
         auto update = suspected_.extract(*found);
@@ -400,7 +414,6 @@ void SwimServer::OnReport(Server *sender, SwimReport *report) {
         suspected_.insert(std::move(update));
       }
     }
-    ReportSuspected(record.server(), record.timestamp());
   }
 }
 
@@ -414,6 +427,7 @@ void SwimServer::OnUpdate(Server *client) {
   // If it was previously suspected of being unresponsive, this server is
   // removed from the suspected list:
   std::shared_ptr<ServerRecord> record = MakeRecord(*client);
+
   unsigned long removed;
   {
     mutex_guard lock(suspected_mutex_);

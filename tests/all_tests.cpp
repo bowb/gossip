@@ -19,7 +19,7 @@
 int main(int argc, char **argv) {
   ::google::InitGoogleLogging(argv[0]);
 
-  ::tests::_init_dre();
+  ::tests::_init_ports();
   LOG(INFO) << "Running all tests for distlib";
 
   ::testing::InitGoogleTest(&argc, argv);

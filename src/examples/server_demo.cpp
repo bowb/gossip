@@ -48,7 +48,7 @@ int runClient(const std::string &host, int port, const std::string &name,
             << " msec.";
 
   auto server = MakeServer(host, port);
-  SwimClient client(*server, 0, std::chrono::milliseconds{timeout});
+  SwimClient client(0, *server, 0, std::chrono::milliseconds{timeout});
   auto client_svr = MakeServer(name, client.self().port());
   client.setSelf(*client_svr);
 

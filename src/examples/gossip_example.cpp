@@ -197,7 +197,6 @@ int main(int argc, const char *argv[]) {
 
         LOG(INFO) << "Adding neighbor: " << server;
         detector->AddNeighbor(server);
-
       } catch (::utils::parse_error &e) {
         LOG(ERROR) << "Could not parse '" << name << "': " << e.what();
       }
@@ -298,7 +297,6 @@ int main(int argc, const char *argv[]) {
     while (true) {
       std::this_thread::sleep_for(milliseconds(300));
     }
-
   } catch (::utils::parse_error &error) {
     LOG(ERROR) << "A parsing error occurred: " << error.what();
     return EXIT_FAILURE;

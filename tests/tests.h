@@ -23,19 +23,18 @@ static bool seeded = false;
 static std::default_random_engine DRE;
 
 /**
- * Uniform distribution for port numbers to be used during tests.
+ * randomized port numbers to be used during tests.
  */
-static std::uniform_int_distribution<unsigned short> di_(kMinPort, kMaxPort);
-
+static std::vector<unsigned short> ports;
 /**
- * Initializes the random generator with the current time (seconds from epoch)
- * as a long value. It should not be necessary to call this directly, it is
  * called once by the `RandomPort()` method.
  */
-inline void _init_dre() {
-  auto seed = static_cast<unsigned long>(std::time(nullptr));
-  DRE.seed(seed);
+inline void _init_ports() {
   seeded = true;
+  ports = std::vector<unsigned short>(kMaxPort - kMinPort + 1);
+  std::iota(std::begin(ports), std::end(ports), kMinPort);
+  std::shuffle(std::begin(ports), std::end(ports),
+               std::mt19937{std::random_device{}()});
 }
 
 /**
@@ -43,9 +42,13 @@ inline void _init_dre() {
  */
 inline unsigned short RandomPort() {
   if (!seeded) {
-    _init_dre();
+    _init_ports();
   }
-  return di_(DRE);
+
+  auto ret = ports.back();
+  ports.pop_back();
+
+  return ret;
 }
 
 /**

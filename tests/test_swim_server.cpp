@@ -130,7 +130,7 @@ TEST_F(SwimServerTests, canCreate) {
 
 TEST_F(SwimServerTests, noServerNoPing) {
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(*svr);
+  SwimClient client(0, *svr);
   ASSERT_FALSE(server_->isRunning());
   ASSERT_FALSE(client.Ping());
 }
@@ -140,7 +140,7 @@ TEST_F(SwimServerTests, canStartAndConnect) {
   ASSERT_TRUE(port >= tests::kMinPort && port < tests::kMaxPort);
 
   std::unique_ptr<Server> localhost = MakeServer("localhost", port);
-  SwimClient client(*localhost);
+  SwimClient client(0, *localhost);
 
   EXPECT_FALSE(server_->isRunning());
   ASSERT_NO_FATAL_FAILURE(runServer()) << "Could not get the server started";
@@ -169,7 +169,7 @@ TEST_F(SwimServerTests, canOverrideOnUpdate) {
   ASSERT_TRUE(server.isRunning());
 
   auto dest = MakeServer("localhost", port);
-  SwimClient client(*dest);
+  SwimClient client(0, *dest);
   ASSERT_TRUE(client.Ping());
   ASSERT_TRUE(server.wasUpdated());
 
@@ -186,7 +186,7 @@ TEST_F(SwimServerTests, destructorStopsServer) {
   unsigned short port = 55234;
 
   auto server = MakeServer("localhost", port);
-  std::unique_ptr<SwimClient> client(new SwimClient(*server));
+  std::unique_ptr<SwimClient> client(new SwimClient(0, *server));
   {
     TestServer testServer(port);
     std::thread t([&] { testServer.start(); });
@@ -206,7 +206,7 @@ TEST_F(SwimServerTests, receiveReport) {
   ASSERT_NO_FATAL_FAILURE(runServer()) << "Could not get the server started";
   ASSERT_TRUE(server_->isRunning());
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(*svr, 9200);
+  SwimClient client(0, *svr, 9200);
 
   SwimReport report;
 
@@ -239,7 +239,7 @@ TEST_F(SwimServerTests, receiveReportMany) {
   ASSERT_NO_FATAL_FAILURE(runServer()) << "Could not get the server started";
   ASSERT_TRUE(server_->isRunning());
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(*svr, 9200);
+  SwimClient client(0, *svr, 9200);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -273,12 +273,78 @@ TEST_F(SwimServerTests, receiveReportMany) {
   ASSERT_EQ(0, suspectRemovedCount);
 }
 
+TEST_F(SwimServerTests, reportAliveIncarnation) {
+  ASSERT_NO_FATAL_FAILURE(runServer()) << "Could not get the server started";
+  ASSERT_TRUE(server_->isRunning());
+
+  auto svr = MakeServer("localhost", server_->port());
+  SwimClient client(0, *svr, 9200);
+
+  SwimReport report;
+  report.mutable_sender()->CopyFrom(client.self());
+
+  auto alive = report.mutable_alive();
+  ServerRecord *two = alive->Add();
+  two->mutable_server()->set_hostname("host-suspect");
+  two->mutable_server()->set_incarnation(10);
+  two->set_timestamp(utils::CurrentTime() - 10);
+  two->set_lamport_time(0);
+  two->mutable_server()->set_port(5500);
+
+  ASSERT_TRUE(client.Send(report));
+
+  auto sreport = server_->PrepareReport();
+
+  ASSERT_EQ(2, server_->alive_size());
+  ASSERT_EQ(0, server_->suspected_size());
+
+  ASSERT_EQ(2, aliveReceivedCount);
+  ASSERT_EQ(0, suspectReceivedCount);
+
+  auto r = sreport.alive()[0];
+
+  ASSERT_EQ(r.server().incarnation(), 10);
+}
+
+TEST_F(SwimServerTests, reportSuspectedIncarnation) {
+  ASSERT_NO_FATAL_FAILURE(runServer()) << "Could not get the server started";
+  ASSERT_TRUE(server_->isRunning());
+
+  auto svr = MakeServer("localhost", server_->port());
+  SwimClient client(0, *svr, 9200);
+
+  SwimReport report;
+  report.mutable_sender()->CopyFrom(client.self());
+
+  auto suspected = report.mutable_suspected();
+  ServerRecord *two = suspected->Add();
+  two->mutable_server()->set_hostname("host-suspect");
+  two->mutable_server()->set_incarnation(10);
+  two->set_timestamp(utils::CurrentTime() - 10);
+  two->set_lamport_time(0);
+  two->mutable_server()->set_port(5500);
+
+  ASSERT_TRUE(client.Send(report));
+
+  auto sreport = server_->PrepareReport();
+
+  ASSERT_EQ(1, server_->alive_size());
+  ASSERT_EQ(1, server_->suspected_size());
+
+  ASSERT_EQ(1, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
+
+  auto r = sreport.suspected()[0];
+
+  ASSERT_EQ(r.server().incarnation(), 10);
+}
+
 TEST_F(SwimServerTests, reconcileReports) {
   ASSERT_NO_FATAL_FAILURE(runServer()) << "Could not get the server started";
   ASSERT_TRUE(server_->isRunning());
 
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(*svr, 9200);
+  SwimClient client(0, *svr, 9200);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -287,6 +353,7 @@ TEST_F(SwimServerTests, reconcileReports) {
   ServerRecord *two = suspected->Add();
   two->mutable_server()->set_hostname("host-suspect");
   two->set_timestamp(utils::CurrentTime() - 10);
+  two->set_lamport_time(0);
   two->mutable_server()->set_port(5500);
 
   ASSERT_TRUE(client.Send(report));
@@ -304,6 +371,7 @@ TEST_F(SwimServerTests, reconcileReports) {
   two = report.mutable_alive()->Add();
   two->mutable_server()->set_hostname("host-suspect");
   two->set_timestamp(utils::CurrentTime());
+  two->set_lamport_time(10);
   two->mutable_server()->set_port(5500);
 
   ASSERT_TRUE(client.Send(report));
@@ -320,7 +388,7 @@ TEST_F(SwimServerTests, ignoreStaleReports) {
   ASSERT_TRUE(server_->isRunning());
 
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(*svr, 9200);
+  SwimClient client(0, *svr, 9200);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -329,6 +397,7 @@ TEST_F(SwimServerTests, ignoreStaleReports) {
   ServerRecord *two = suspected->Add();
   two->mutable_server()->set_hostname("host-suspect");
   two->set_timestamp(utils::CurrentTime());
+  two->set_lamport_time(10);
   two->mutable_server()->set_port(5500);
 
   ASSERT_TRUE(client.Send(report));
@@ -345,6 +414,7 @@ TEST_F(SwimServerTests, ignoreStaleReports) {
   // The information that this server was alive 10 minutes ago is
   // irrelevant and should be ignored.
   two->set_timestamp(utils::CurrentTime() - 600);
+  two->set_lamport_time(0);
   two->mutable_server()->set_port(5500);
 
   ASSERT_TRUE(client.Send(report));
@@ -361,7 +431,7 @@ TEST_F(SwimServerTests, ignoreStaleReports2) {
   ASSERT_TRUE(server_->isRunning());
 
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(*svr, 9200);
+  SwimClient client(0, *svr, 9200);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -371,6 +441,7 @@ TEST_F(SwimServerTests, ignoreStaleReports2) {
   two->mutable_server()->set_hostname("host-alive");
   two->mutable_server()->set_port(5500);
   two->set_timestamp(utils::CurrentTime());
+  two->set_lamport_time(10);
 
   ASSERT_TRUE(client.Send(report));
   ASSERT_EQ(2, server_->alive_size());
@@ -387,6 +458,7 @@ TEST_F(SwimServerTests, ignoreStaleReports2) {
   // The information that this server was suspected 10 minutes ago is
   // irrelevant and should be ignored.
   two->set_timestamp(utils::CurrentTime() - 600);
+  two->set_lamport_time(0);
   two->mutable_server()->set_port(5500);
 
   ASSERT_TRUE(client.Send(report));
@@ -403,7 +475,7 @@ TEST_F(SwimServerTests, servesPingRequests) {
   ASSERT_TRUE(server_->isRunning());
 
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(*svr, 9200);
+  SwimClient client(0, *svr, 9200);
 
   auto other = MakeServer("fakeserver", 9098);
 
@@ -435,7 +507,7 @@ TEST_F(SwimServerTests, canRestart) {
 
   ASSERT_TRUE(server_->isRunning());
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(*svr);
+  SwimClient client(0, *svr);
   ASSERT_TRUE(client.Ping());
 
   server_->stop();
@@ -457,7 +529,7 @@ TEST_F(SwimServerTests, testBudget) {
 
   auto svr = MakeServer(server_->self().hostname(), server_->port());
 
-  SwimClient client(*svr, 33456);
+  SwimClient client(0, *svr, 33456);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -568,7 +640,7 @@ TEST(SwimProtocolTests, testForwarding) {
   ASSERT_EQ(0, suspectedSuspectReceivedCount);
   ASSERT_EQ(0, suspectedRemovedReceivedCount);
 
-  SwimClient client(forwarder.self(), sender_port);
+  SwimClient client(0, forwarder.self(), sender_port);
   ASSERT_TRUE(client.RequestPing(dest));
 
   ASSERT_EQ(0, senderAliveReceivedCount);
@@ -696,7 +768,7 @@ TEST(SwimProtocolTests, testForwardingStaysSuspected) {
   ASSERT_EQ(1, report.suspected_size());
   ASSERT_EQ(suspected.self(), report.suspected(0).server());
 
-  SwimClient client(forwarder.self(), sender_port);
+  SwimClient client(0, forwarder.self(), sender_port);
   ASSERT_TRUE(client.RequestPing(dest));
 
   ASSERT_EQ(0, senderAliveReceivedCount);

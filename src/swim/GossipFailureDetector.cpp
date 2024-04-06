@@ -105,10 +105,11 @@ bool GossipFailureDetector::SendReport(SwimClient &client,
     LOG(WARNING) << "Report sending failed; adding " << other << " to suspects";
     gossip_server_->ReportSuspected(other, ::utils::CurrentTime());
     auto forwards = GetUniqueNeighbors(num_forwards_);
+    const auto lamportTime = gossip_server_->GetLamportTime();
     for (const auto &fwd : forwards) {
       VLOG(2) << "Requesting " << fwd << " to ping " << other
               << " on our behalf";
-      client = SwimClient(fwd, gossip_server_->port());
+      client = SwimClient(lamportTime, fwd, gossip_server_->port());
 
       // This is required, as `RequestPing` takes ownership of the pointer and
       // will dispose of it.
@@ -134,7 +135,8 @@ void GossipFailureDetector::SendReport(ReportType type) {
   switch (type) {
   case ReportType::FULL: {
     for (const auto &other : GetUniqueNeighbors(num_reports_)) {
-      auto client = SwimClient(other, gossip_server_->port());
+      auto client = SwimClient(gossip_server_->GetLamportTime(), other,
+                               gossip_server_->port());
       VLOG(2) << "Sending report to " << other;
 
       if (SendReport(client, report, other)) {
@@ -144,7 +146,8 @@ void GossipFailureDetector::SendReport(ReportType type) {
   } break;
   case ReportType::SINGLE: {
     const Server other = gossip_server_->GetRandomNeighbor();
-    auto client = SwimClient(other, gossip_server_->port());
+    auto client = SwimClient(gossip_server_->GetLamportTime(), other,
+                             gossip_server_->port());
     if (SendReport(client, report, other)) {
       gossip_server_->AddAlive(other, ::utils::CurrentTime());
     }

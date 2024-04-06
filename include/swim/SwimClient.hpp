@@ -22,7 +22,7 @@ namespace swim {
  * to send reports.
  */
 class SwimClient {
-
+  LamportTime lamport_time_;
   Server dest_;
   Server self_;
   std::chrono::milliseconds timeout_;
@@ -44,7 +44,11 @@ class SwimClient {
    * @param envelope the message to be sent to the destination (`dest_`) server.
    * @return the response from the server, is successful; `nullptr` otherwise.
    */
-  bool postMessage(SwimEnvelope *envelope) const;
+  bool postMessage(SwimEnvelope *envelope);
+
+  void UpdateLamportTime(const LamportTime time) {
+    lamport_time_ = (std::max(lamport_time_, time) + 1);
+  }
 
 public:
   /**
@@ -52,11 +56,12 @@ public:
    * server.
    *
    * @param dest where to send the message to.
+   * @param LamportTime logical lamport time
    * @param self_port if this server is also listening on a port, specify it
    * here.
    * @param timeout an optional timeout, in milliseconds.
    */
-  SwimClient(const Server &dest, int self_port = 0,
+  SwimClient(const LamportTime time, const Server &dest, int self_port = 0,
              std::chrono::milliseconds timeout = swim::kDefaultTimeoutMsec);
 
   virtual ~SwimClient() {}
@@ -74,7 +79,7 @@ public:
    * @return `true` if the server returned an `OK`.
    */
   // TODO: make it return a Future instead
-  bool Ping() const;
+  bool Ping();
 
   /**
    * Sends a status report on all known nodes' statuses changes.
@@ -87,7 +92,7 @@ public:
    * @param report
    * @return `false` if the request timed out
    */
-  bool Send(const SwimReport &report) const;
+  bool Send(const SwimReport &report);
 
   /**
    * Requests the `dest` server to ping `other` and verify its status.
@@ -96,7 +101,7 @@ public:
    * @param other the server to be pinged on behalf of this one
    * @return `false` if the request timed out
    */
-  bool RequestPing(const Server *other) const;
+  bool RequestPing(const Server *other);
 
   /**
    * Utility method to obtain this server's coordinates.
@@ -118,6 +123,8 @@ public:
     self_.set_ip_addr(other.ip_addr());
     self_.set_port(other.port());
   }
+
+  void setLamportTime(const LamportTime time) { lamport_time_ = time; }
 };
 
 } // namespace swim

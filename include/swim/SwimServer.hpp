@@ -45,7 +45,8 @@ class SwimServer {
    * currently not really tracking any state so...
    *
    */
-  uint64_t incarnation_;
+  std::atomic<uint64_t> incarnation_;
+  std::atomic<LamportTime> lamport_time_;
   unsigned short port_;
   unsigned int num_threads_;
   std::atomic<bool> stopped_;
@@ -95,6 +96,15 @@ class SwimServer {
   void AddRecordsToBudget(SwimReport &report,
                           std::vector<ServerRecord> &records,
                           const ReportSelector &which = kAlive) const;
+
+  /**
+   * @brief update the local lamport time when an event is processed
+   *
+   * @param time
+   */
+  void UpdateLamportTime(const LamportTime time) {
+    lamport_time_ = (std::max(lamport_time_.load(), time) + 1);
+  }
 
 protected:
   /**
@@ -153,8 +163,9 @@ public:
       std::optional<ServerStatusFunc> statusCb = std::nullopt,
       unsigned int threads = kNumThreads,
       std::chrono::milliseconds polling_interval = kDefaultPollingIntervalMsec)
-      : incarnation_(0), port_(port), num_threads_(threads), stopped_(true),
-        polling_interval_(polling_interval), statusCb(statusCb) {}
+      : incarnation_(0), lamport_time_(0), port_(port), num_threads_(threads),
+        stopped_(true), polling_interval_(polling_interval),
+        statusCb(statusCb) {}
 
   virtual ~SwimServer();
 
@@ -273,6 +284,8 @@ public:
    * @param server to remove from the set
    */
   void RemoveSuspected(const Server &);
+
+  LamportTime GetLamportTime() const { return lamport_time_.load(); }
 };
 
 /**

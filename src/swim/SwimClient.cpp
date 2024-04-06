@@ -15,14 +15,14 @@ namespace swim {
 
 std::default_random_engine random_engine{};
 
-SwimClient::SwimClient(const Server &dest, int self_port,
-                       std::chrono::milliseconds timeout)
-    : dest_(dest), timeout_(timeout) {
+SwimClient::SwimClient(const LamportTime time, const Server &dest,
+                       int self_port, std::chrono::milliseconds timeout)
+    : lamport_time_(time), dest_(dest), timeout_(timeout) {
   self_.set_hostname(utils::Hostname());
   self_.set_port(self_port);
 }
 
-bool SwimClient::Ping() const {
+bool SwimClient::Ping() {
   SwimEnvelope message;
   message.set_type(SwimEnvelope::Type::SwimEnvelope_Type_STATUS_UPDATE);
 
@@ -33,7 +33,7 @@ bool SwimClient::Ping() const {
   return true;
 }
 
-bool SwimClient::Send(const SwimReport &report) const {
+bool SwimClient::Send(const SwimReport &report) {
   SwimEnvelope message;
 
   message.set_type(SwimEnvelope_Type_STATUS_REPORT);
@@ -44,7 +44,7 @@ bool SwimClient::Send(const SwimReport &report) const {
   return ret;
 }
 
-bool SwimClient::RequestPing(const Server *other) const {
+bool SwimClient::RequestPing(const Server *other) {
   SwimEnvelope message;
   message.set_type(SwimEnvelope_Type_STATUS_REQUEST);
   message.set_allocated_destination_server(const_cast<Server *>(other));
@@ -66,8 +66,12 @@ void SwimClient::set_max_allowed_reports(unsigned int max_allowed_reports_) {
   SwimClient::max_allowed_reports_ = max_allowed_reports_;
 }
 
-bool SwimClient::postMessage(SwimEnvelope *envelope) const {
+bool SwimClient::postMessage(SwimEnvelope *envelope) {
+  lamport_time_++;
+
   envelope->mutable_sender()->CopyFrom(self_);
+  envelope->set_lamport_time(lamport_time_);
+
   std::string msgAsStr = envelope->SerializeAsString();
 
   size_t msgSize = msgAsStr.size();

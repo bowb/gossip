@@ -39,9 +39,12 @@ message ServerRecord {
     // that it also represents the time at which `server` responded to the "ping request."
     fixed64 timestamp = 2;
 
+    // lamport time of event
+     uint64 lamport_time = 3;
+
     // If this record is sent on behalf of another server,
     // the forwarder should enter its identity here.
-    optional Server forwarder = 3;
+    optional Server forwarder = 4;
 }
 
 
@@ -109,10 +112,14 @@ message SwimEnvelope {
     // receiver who will update its membership list accordingly.
     Server sender = 2;
 
-    optional SwimReport report = 5;
+    // lamport time of event
+    uint64 lamport_time = 5;
+
+    optional SwimReport report = 6;
 
     // The server that is `suspected` and should be pinged by the receiver
     // on behalf of the `sender`; this is only used when used in a Type::STATUS_REQUEST
     // message.
-    optional Server destination_server = 6;
+    optional Server destination_server = 7;
+
 }

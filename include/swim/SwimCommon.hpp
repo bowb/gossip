@@ -16,6 +16,7 @@ using std::set;
 using namespace std::chrono;
 using Timestamp = system_clock::time_point;
 using namespace std::chrono_literals;
+using LamportTime = uint64_t;
 
 namespace swim {
 

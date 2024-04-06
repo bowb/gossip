@@ -102,7 +102,7 @@ TEST_F(GossipFailureDetectorTests, getUniqueNeighborsRoundRobin) {
   ASSERT_TRUE(server.alive_empty());
   for (int i = 0; i < 10; ++i) {
     SwimClient client(
-        *MakeServer("localhost", detector_->gossip_server().port()),
+        0, *MakeServer("localhost", detector_->gossip_server().port()),
         tests::RandomPort());
     ASSERT_TRUE(client.Ping());
   }
@@ -125,8 +125,8 @@ TEST_F(GossipFailureDetectorTests, getUniqueNeighborsRoundRobin) {
 
 TEST_F(GossipFailureDetectorTests, updatesAlives) {
 
-  SwimClient client(*MakeServer("localhost", detector_->gossip_server().port()),
-                    9000);
+  SwimClient client(
+      0, *MakeServer("localhost", detector_->gossip_server().port()), 9000);
 
   ASSERT_TRUE(tests::WaitAtMostFor(
       [&]() -> bool { return detector_->gossip_server().isRunning(); },
@@ -154,7 +154,7 @@ TEST_F(GossipFailureDetectorTests, updatesManyAlives) {
   ASSERT_TRUE(server.alive_empty());
   for (int i = 0; i < 10; ++i) {
     SwimClient client(
-        *MakeServer("localhost", detector_->gossip_server().port()),
+        0, *MakeServer("localhost", detector_->gossip_server().port()),
         tests::RandomPort());
     ASSERT_TRUE(client.Ping());
   }
