@@ -22,6 +22,7 @@ gtest:shared=False
 zeromq:shared=False
 Protobuf:shared=False
 openssl:shared=False
+glog:shared=False
 # just used in testing
 libuv:shared=True
 http_parser:shared=True
