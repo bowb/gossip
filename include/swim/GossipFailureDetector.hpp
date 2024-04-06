@@ -64,6 +64,12 @@ class GossipFailureDetector {
   std::optional<ServerStatusFunc> statusCb;
 
   /**
+   * @brief hostname for this gossip server
+   *
+   */
+  std::string host_name_;
+
+  /**
    * When sending reports (and probing neighbors' health) we will send this many
    * reports out.
    */
@@ -123,50 +129,14 @@ public:
    * @param statusCb called when records are updated
    */
   explicit GossipFailureDetector(
+      const std::string &host_name,
       std::optional<ServerStatusFunc> statusCb = std::nullopt,
       unsigned short port = kDefaultPort,
       const std::chrono::milliseconds interval = kDefaultPingIntervalMsec,
       const std::chrono::milliseconds grace_period = kDefaultGracePeriodMsec,
-      const std::chrono::milliseconds ping_timeout_msec = kDefaultTimeoutMsec)
-      : update_round_interval_(interval), grace_period_(grace_period),
-        ping_timeout_(ping_timeout_msec), statusCb(statusCb) {
-    VLOG(2) << "GossipFailureDetector (port: " << port
-            << ", interval_msec: " << interval.count()
-            << ", grace_period_msec: " << grace_period.count()
-            << ", ping_timeout_msec: " << ping_timeout_msec.count() << ")";
-    num_reports_ = kDefaultNumReports;
-    num_forwards_ = kDefaultNumForward;
-    round_robin_index_ = 0;
+      const std::chrono::milliseconds ping_timeout_msec = kDefaultTimeoutMsec);
 
-    gossip_server_.reset(new SwimServer(port, statusCb));
-
-    VLOG(2) << "Starting SwimServer on port: " << port;
-    std::thread t([this] { gossip_server_->start(); });
-    t.detach();
-  }
-
-  virtual ~GossipFailureDetector() {
-    VLOG(2) << "Destroying detector, listening on port "
-            << gossip_server_->port();
-    if (gossip_server_ && gossip_server_->isRunning()) {
-      VLOG(2) << "Stopping server";
-      gossip_server_->stop();
-
-      // Wait a little while for the server to stop.
-      int retries = 5;
-      while (gossip_server_->isRunning() && retries-- > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-      }
-
-      if (gossip_server_->isRunning()) {
-        LOG(FATAL) << "Failed to stop the server, aborting process";
-      }
-    }
-    VLOG(2) << "stopping background threads";
-    StopAllBackgroundThreads();
-
-    VLOG(2) << "done";
-  }
+  virtual ~GossipFailureDetector();
 
   // Getters
 
@@ -300,6 +270,12 @@ public:
    */
   bool SendReport(SwimClient &client, const SwimReport &report,
                   const Server &other);
+
+  /**
+   * @brief ping a random suspect just for fun
+   *
+   */
+  void PingRandomSuspected() const;
 
   /**
    * Scan the set of `suspected()` servers: if any has been there for longer

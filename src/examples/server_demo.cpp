@@ -42,13 +42,15 @@ void start_timer(unsigned long duration_sec) {
   t.detach();
 }
 
-int runClient(const std::string &host, int port, const std::string &name,
-              unsigned long timeout, unsigned long duration) {
+int runClient(const std::string &host_name, const std::string &host, int port,
+              const std::string &name, unsigned long timeout,
+              unsigned long duration) {
   LOG(INFO) << "Running for " << duration << " seconds; timeout: " << timeout
             << " msec.";
 
   auto server = MakeServer(host, port);
-  SwimClient client(0, *server, 0, std::chrono::milliseconds{timeout});
+  SwimClient client(host_name, 0, *server, 0,
+                    std::chrono::milliseconds{timeout});
   auto client_svr = MakeServer(name, client.self().port());
   client.setSelf(*client_svr);
 
@@ -78,6 +80,7 @@ int main(int argc, const char *argv[]) {
   std::string action = "";
   std::string host = "";
   std::string name = "";
+  std::string host_name = ::utils::Hostname();
 
   // clang-format off
   opts.add_options()("debug", "verbose output (LOG_v = 2)")
@@ -94,6 +97,7 @@ int main(int argc, const char *argv[]) {
     ("action", po::value<std::string>(&action),
       "one of `send` or `receive`; if the former, also specifiy the host to send the data to.")
     ("name", po::value<std::string>(&name)->default_value("client"), "name of the client.")
+    ("host_name", po::value<std::string>(&host_name),"Name of this server")
   ;
   // clang-format on
 
@@ -147,9 +151,9 @@ int main(int argc, const char *argv[]) {
                     "to send the status to";
       return EXIT_FAILURE;
     }
-    runClient(host, port, name, timeout, duration);
+    runClient(host_name, host, port, name, timeout, duration);
   } else if (action == "receive") {
-    SwimServer server(port);
+    SwimServer server(host_name, port);
     // TODO: this should run in a separate thread instead, and we just join() on
     // the timer thread.
     server.start();

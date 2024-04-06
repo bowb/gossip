@@ -12,6 +12,18 @@ using namespace zmq;
 
 namespace swim {
 
+SwimServer::SwimServer(const std::string &host_name, const unsigned short port,
+                       std::optional<ServerStatusFunc> statusCb,
+                       unsigned int threads,
+                       std::chrono::milliseconds polling_interval)
+    : incarnation_(0), lamport_time_(0), port_(port), num_threads_(threads),
+      stopped_(true), polling_interval_(polling_interval), statusCb(statusCb),
+      host_name_(host_name) {
+  if (host_name_.size() == 0) {
+    host_name_ = ::utils::Hostname();
+  }
+}
+
 SwimServer::~SwimServer() {
   int retry_count = 5;
 
@@ -145,7 +157,7 @@ void SwimServer::OnForwardRequest(Server *sender, Server *destination) {
 
     // TODO: the timeout should be a property that we could set; for now using
     // the default value.
-    SwimClient client(lamport_time_, *destination, port_);
+    SwimClient client(host_name_, lamport_time_, *destination, port_);
 
     if (!client.Send(report)) {
       VLOG(2) << self() << ": Forwarded request to " << *destination
@@ -172,7 +184,7 @@ SwimReport SwimServer::PrepareReport() const {
       records.push_back(*record);
     }
   }
-  AddRecordsToBudget(report, records, kAlive);
+  AddRecordsToBudget(report, records, ReportSelector::kAlive);
   records.clear();
   {
     mutex_guard lock(suspected_mutex_);
@@ -181,7 +193,7 @@ SwimReport SwimServer::PrepareReport() const {
       records.push_back(*item);
     }
   }
-  AddRecordsToBudget(report, records, kSuspected);
+  AddRecordsToBudget(report, records, ReportSelector::kSuspected);
 
   return report;
 }
@@ -204,27 +216,49 @@ void SwimServer::AddRecordsToBudget(SwimReport &report,
     running_cost += cost(duration_cast<seconds>(milliseconds{dt}).count());
     if (running_cost > kTimeDecayBudget)
       break;
-    ServerRecord *prec = which == kAlive ? report.mutable_alive()->Add()
-                                         : report.mutable_suspected()->Add();
+    ServerRecord *prec = which == ReportSelector::kAlive
+                             ? report.mutable_alive()->Add()
+                             : report.mutable_suspected()->Add();
     prec->CopyFrom(item);
   }
 }
 
 Server SwimServer::GetNeighborByIndex(unsigned long index) const {
-  auto size = alive_size();
+
+  mutex_guard lock(alive_mutex_);
+  auto size = alive_.size();
+
   if (size == 0) {
     throw empty_set();
   }
 
-  if (index > size) {
+  if (index >= size) {
     index = 0;
   }
 
-  mutex_guard lock(alive_mutex_);
   auto iterator = alive_.begin();
   advance(iterator, index);
 
   assert(iterator != alive_.end());
+
+  return (*iterator)->server();
+}
+
+Server SwimServer::GetRandomSuspect() const {
+  mutex_guard lock(suspected_mutex_);
+
+  auto size = suspected_.size();
+  if (size == 0) {
+    throw empty_set();
+  }
+
+  std::uniform_int_distribution<unsigned long> distribution(0, size - 1);
+  auto num = distribution(swim::random_engine);
+
+  auto iterator = suspected_.begin();
+  advance(iterator, num);
+
+  assert(iterator != suspected_.end());
 
   return (*iterator)->server();
 }
@@ -234,7 +268,9 @@ Server SwimServer::GetRandomNeighbor() const {
   // It is IMPORTANT that calls to alive_size() (and _empty()) are done OUTSIDE
   // of the critical section guarded by the mutex, as it is NOT re-entrant and
   // thus causes the thread to wait indefinitely.
-  auto size = alive_size();
+  mutex_guard lock(alive_mutex_);
+
+  auto size = alive_.size();
   if (size == 0) {
     throw empty_set();
   }
@@ -242,7 +278,6 @@ Server SwimServer::GetRandomNeighbor() const {
   std::uniform_int_distribution<unsigned long> distribution(0, size - 1);
   auto num = distribution(swim::random_engine);
 
-  mutex_guard lock(alive_mutex_);
   auto iterator = alive_.begin();
   advance(iterator, num);
 
@@ -257,6 +292,12 @@ bool SwimServer::ReportSuspected(const Server &server,
 
   if (server.port() == 0) {
     VLOG(3) << "Refused to add a port 0 server to suspect set";
+    return false;
+  }
+
+  // myself is always alive
+  if (server == self()) {
+    AddAlive(server, timestamp);
     return false;
   }
 
@@ -278,7 +319,7 @@ bool SwimServer::ReportSuspected(const Server &server,
   bool inserted = false;
   {
     mutex_guard lock(suspected_mutex_);
-    inserted = suspected_.insert(suspectRecord).second;
+    inserted = suspected_.insert(std::move(suspectRecord)).second;
   }
 
   if (inserted && statusCb.has_value()) {
@@ -294,7 +335,7 @@ bool SwimServer::AddAlive(const Server &server, google::uint64 timestamp) {
     return false;
   }
 
-  RemoveSuspected(server);
+  RemoveSuspected(server, RemoveType::alive);
 
   std::shared_ptr<ServerRecord> aliveRecord = MakeRecord(server);
   aliveRecord->set_timestamp(timestamp);
@@ -303,12 +344,14 @@ bool SwimServer::AddAlive(const Server &server, google::uint64 timestamp) {
   bool inserted = false;
   {
     mutex_guard lock(alive_mutex_);
+
     inserted = alive_.insert(aliveRecord).second;
   }
 
   // If we already knew of this server being healthy, all we have to do
   // is update the timestamp of the last time we saw it.
   if (!inserted) {
+    mutex_guard lock(alive_mutex_);
     auto pr = alive_.find(aliveRecord);
     if (pr != alive_.end()) {
       (*pr)->set_timestamp(timestamp);
@@ -323,14 +366,15 @@ bool SwimServer::AddAlive(const Server &server, google::uint64 timestamp) {
   return inserted;
 }
 
-void SwimServer::RemoveSuspected(const Server &server) {
+void SwimServer::RemoveSuspected(const Server &server,
+                                 const RemoveType removeType) {
   std::shared_ptr<ServerRecord> aliveRecord = MakeRecord(server);
   size_t num{0};
   {
     mutex_guard lock(suspected_mutex_);
     num = suspected_.erase(aliveRecord);
   }
-  if (num > 0) {
+  if (num > 0 && removeType == RemoveType::evicted) {
     VLOG(2) << "Removed " << num << " entry from the suspected set";
     if (statusCb.has_value()) {
       statusCb.value()(aliveRecord, ServerStatus::removed);
@@ -384,7 +428,7 @@ void SwimServer::OnReport(Server *sender, SwimReport *report) {
       // Reports of our death were greatly exaggerated.
       VLOG(2) << self() << ": " << report->sender()
               << " reported this server as 'suspected' pinging";
-      SwimClient client(lamport_time_, report->sender(), port_);
+      SwimClient client(host_name_, lamport_time_, report->sender(), port_);
       client.Ping();
       continue;
     }

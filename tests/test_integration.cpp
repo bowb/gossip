@@ -11,11 +11,11 @@
 #include <SimpleHttpRequest.hpp>
 #include <google/protobuf/util/json_util.h>
 
+#include "tests.h"
 #include <api/rest/ApiServer.hpp>
 #include <swim/GossipFailureDetector.hpp>
 #include <swim/SwimClient.hpp>
-
-#include "tests.h"
+#include <utils/utils.hpp>
 
 using namespace swim;
 using namespace std::chrono;
@@ -40,6 +40,7 @@ protected:
     //
     // detector
     detector.reset(new GossipFailureDetector(
+        ::utils::Hostname(),
         [this](std::shared_ptr<ServerRecord>, ServerStatus status) {
           if (ServerStatus::alive == status) {
             aliveReceivedCount++;
@@ -85,7 +86,7 @@ TEST_F(IntegrationTests, detectFailingNeighbor) {
   int neighborSuspectRemovedCount = 0;
 
   auto neighbor = std::unique_ptr<SwimServer>(
-      new SwimServer(::tests::RandomPort(),
+      new SwimServer(::utils::Hostname(), ::tests::RandomPort(),
                      [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
                        if (ServerStatus::alive == status) {
                          neighborAliveReceivedCount++;
@@ -99,13 +100,16 @@ TEST_F(IntegrationTests, detectFailingNeighbor) {
                          neighborSuspectRemovedCount++;
                        }
                      }));
+
+  std::this_thread::sleep_for(seconds(2));
+
   std::thread neighbor_thread([&neighbor]() { neighbor->start(); });
 
   detector->AddNeighbor(neighbor->self());
-  EXPECT_EQ(1, server().alive_size());
+  EXPECT_EQ(0, server().alive_size());
 
-  ASSERT_EQ(1, aliveReceivedCount);
-  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
   ASSERT_EQ(0, suspectRemovedCount);
 
   ASSERT_EQ(0, neighborAliveReceivedCount);
@@ -118,7 +122,7 @@ TEST_F(IntegrationTests, detectFailingNeighbor) {
   EXPECT_EQ(1, server().alive_size());
 
   ASSERT_EQ(1, aliveReceivedCount);
-  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
   ASSERT_EQ(0, suspectRemovedCount);
 
   neighbor->stop();
@@ -130,7 +134,7 @@ TEST_F(IntegrationTests, detectFailingNeighbor) {
   EXPECT_EQ(1, server().suspected_size());
 
   ASSERT_EQ(1, aliveReceivedCount);
-  ASSERT_EQ(1, suspectReceivedCount);
+  ASSERT_EQ(2, suspectReceivedCount);
   ASSERT_EQ(0, suspectRemovedCount);
 
   // Now, wait long enough for the stopped server to be evicted.
@@ -138,7 +142,7 @@ TEST_F(IntegrationTests, detectFailingNeighbor) {
   EXPECT_TRUE(server().suspected_empty());
 
   ASSERT_EQ(1, aliveReceivedCount);
-  ASSERT_EQ(1, suspectReceivedCount);
+  ASSERT_EQ(2, suspectReceivedCount);
   ASSERT_EQ(1, suspectRemovedCount);
 
   ASSERT_EQ(1, neighborAliveReceivedCount);
@@ -161,7 +165,7 @@ TEST_F(IntegrationTests, gossipSpreads) {
   int neighborSuspectRemovedCount = 0;
 
   auto neighbor = std::unique_ptr<SwimServer>(
-      new SwimServer(::tests::RandomPort(),
+      new SwimServer(::utils::Hostname(), ::tests::RandomPort(),
                      [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
                        if (ServerStatus::alive == status) {
                          neighborAliveReceivedCount++;
@@ -177,8 +181,8 @@ TEST_F(IntegrationTests, gossipSpreads) {
                      }));
   std::thread neighbor_thread([&]() { neighbor->start(); });
 
-  auto flaky =
-      std::unique_ptr<SwimServer>(new SwimServer(::tests::RandomPort()));
+  auto flaky = std::unique_ptr<SwimServer>(
+      new SwimServer(::utils::Hostname(), ::tests::RandomPort()));
   std::thread flaky_thread([&]() { flaky->start(); });
 
   ASSERT_TRUE(::tests::WaitAtMostFor(
@@ -251,7 +255,7 @@ TEST_F(IntegrationTests, canStopThreads) {
 
   for (int i = 0; i < 5; ++i) {
     auto neighbor =
-        new SwimServer(::tests::RandomPort(),
+        new SwimServer(::utils::Hostname(), ::tests::RandomPort(),
                        [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
                          if (ServerStatus::alive == status) {
                            neighborAliveReceivedCount++;
@@ -307,7 +311,7 @@ TEST_F(IntegrationTests, canStopThreads) {
 
   // Now, when we restart, we should pretty soon find out they're all gone.
   detector->InitAllBackgroundThreads();
-  std::this_thread::sleep_for(seconds(6));
+  std::this_thread::sleep_for(seconds(8));
   EXPECT_TRUE(server().alive_empty());
 
   ASSERT_EQ(5, aliveReceivedCount);
@@ -358,7 +362,8 @@ TEST_F(IntegrationTests, wrongApiServerEndpointReturnsNotFound) {
 }
 
 TEST_F(IntegrationTests, reportsApiServer) {
-  auto neighbor = std::make_unique<SwimServer>(::tests::RandomPort());
+  auto neighbor =
+      std::make_unique<SwimServer>(::utils::Hostname(), ::tests::RandomPort());
   std::thread neighbor_thread([&]() { neighbor->start(); });
 
   ASSERT_TRUE(::tests::WaitAtMostFor(
@@ -425,7 +430,8 @@ TEST_F(IntegrationTests, reportsApiServer) {
 }
 
 TEST_F(IntegrationTests, postApiServer) {
-  auto neighbor = std::make_unique<SwimServer>(::tests::RandomPort());
+  auto neighbor =
+      std::make_unique<SwimServer>(::utils::Hostname(), ::tests::RandomPort());
   Server svr = neighbor->self();
   std::string jsonBody;
   auto status = ::google::protobuf::util::MessageToJsonString(svr, &jsonBody);

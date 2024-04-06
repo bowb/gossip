@@ -20,7 +20,9 @@ namespace swim {
  * Used in `SwimServer::AddRecordsToBudget()` to choose which part of the report
  * to add the list of records.
  */
-enum ReportSelector { kAlive, kSuspected };
+enum class ReportSelector { kAlive, kSuspected };
+
+enum class RemoveType { alive, evicted };
 
 /**
  * Time "cost function" computes the cost of adding a record to a report, once
@@ -52,6 +54,7 @@ class SwimServer {
   std::atomic<bool> stopped_;
   std::chrono::milliseconds polling_interval_;
   std::optional<ServerStatusFunc> statusCb;
+  std::string host_name_;
 
   /**
    * The list of servers that we deem to be healthy (they responded to a ping
@@ -93,9 +96,9 @@ class SwimServer {
    * reached
    * @param which whether to add the records to the `alive` or `suspected` list
    */
-  void AddRecordsToBudget(SwimReport &report,
-                          std::vector<ServerRecord> &records,
-                          const ReportSelector &which = kAlive) const;
+  void AddRecordsToBudget(
+      SwimReport &report, std::vector<ServerRecord> &records,
+      const ReportSelector &which = ReportSelector::kAlive) const;
 
   /**
    * @brief update the local lamport time when an event is processed
@@ -158,14 +161,11 @@ public:
   /** Number of parallel threads handling ZMQ socket requests. */
   static const unsigned int kNumThreads = 5;
 
-  SwimServer(
-      unsigned short port,
+  explicit SwimServer(
+      const std::string &host_name, const unsigned short port,
       std::optional<ServerStatusFunc> statusCb = std::nullopt,
       unsigned int threads = kNumThreads,
-      std::chrono::milliseconds polling_interval = kDefaultPollingIntervalMsec)
-      : incarnation_(0), lamport_time_(0), port_(port), num_threads_(threads),
-        stopped_(true), polling_interval_(polling_interval),
-        statusCb(statusCb) {}
+      std::chrono::milliseconds polling_interval = kDefaultPollingIntervalMsec);
 
   virtual ~SwimServer();
 
@@ -250,6 +250,15 @@ public:
   Server GetNeighborByIndex(unsigned long index) const;
 
   /**
+   * @brief Get a random suspected server
+   *
+   * @param index
+   * @return Server
+   * @throws `swim::empty_set` if the set of suspected neighbors is empty.
+   */
+  Server GetRandomSuspect() const;
+
+  /**
    * Used to report a non-responding server.
    *
    * @param server that failed to respond to a ping request and thus is
@@ -283,7 +292,7 @@ public:
    *
    * @param server to remove from the set
    */
-  void RemoveSuspected(const Server &);
+  void RemoveSuspected(const Server &, const RemoveType removeTypte);
 
   LamportTime GetLamportTime() const { return lamport_time_.load(); }
 };

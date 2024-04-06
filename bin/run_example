@@ -6,28 +6,31 @@ WORKDIR=$(dirname $0)
 PORTS="9091 9092 9093"
 
 QUIET=${1:-}
-DEBUG='--debug'
 
+DEBUG='--trace'
+GLOG_v=3
 
 if [[ ${QUIET} == "-q" ]]; then
     echo "Setting quiet logging; minimal echo to console"
-    DEBUG="--no-debug"
+    DEBUG=""
     GLOG_v=2
     GLOG_logtostderr=1
 fi
 
 cd ${WORKDIR}/../build
 
-SEEDS="localhost"
+SEEDS=""
 for port in ${PORTS}; do
-    SEEDS="${SEEDS}:${port} localhost"
+    SEEDS="127.0.1.1:${port} ${SEEDS}"
 done
+
+SEEDS="127.0.1.1:9094 ${SEEDS}"
 
 for port in ${PORTS}; do
     OUT="/tmp/detector_${port}.log"
-    ./gossip_detector_example ${DEBUG} --port=${port} \
+    ./gossip_detector_example ${DEBUG} --host_name 127.0.1.1 --grace_period=10000 --ping_interval=200  --port=${port} \
             --http --http-port=$((${port} - 1000)) \
-            --seeds=${SEEDS} >$OUT  2>&1 &
+            --seeds=${SEEDS} >$OUT 2>&1 &
     echo "[INFO] Started Detector on port ${port}; logs in ${OUT}"
-    echo "[INFO] API Server at: http://localhost:$((${port} - 1000))/api/v1/*"
+    echo "[INFO] API Server at: http://127.0.1.1:$((${port} - 1000))/api/v1/*"
 done

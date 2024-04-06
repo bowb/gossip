@@ -46,7 +46,8 @@ class TestServer : public SwimServer {
 
 public:
   explicit TestServer(unsigned short port)
-      : SwimServer(port, std::nullopt, 1), wasUpdated_(false) {}
+      : SwimServer(::utils::Hostname(), port, std::nullopt, 1),
+        wasUpdated_(false) {}
   virtual ~TestServer() = default;
 
   void OnUpdate(Server *client) override {
@@ -79,7 +80,8 @@ protected:
     VLOG(2) << "TestFixture: creating server on port " << port;
 
     server_.reset(new SwimServer(
-        port, [this](std::shared_ptr<ServerRecord>, ServerStatus status) {
+        ::utils::Hostname(), port,
+        [this](std::shared_ptr<ServerRecord>, ServerStatus status) {
           if (ServerStatus::alive == status) {
             aliveReceivedCount++;
           }
@@ -130,7 +132,7 @@ TEST_F(SwimServerTests, canCreate) {
 
 TEST_F(SwimServerTests, noServerNoPing) {
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(0, *svr);
+  SwimClient client(::utils::Hostname(), 0, *svr);
   ASSERT_FALSE(server_->isRunning());
   ASSERT_FALSE(client.Ping());
 }
@@ -140,7 +142,7 @@ TEST_F(SwimServerTests, canStartAndConnect) {
   ASSERT_TRUE(port >= tests::kMinPort && port < tests::kMaxPort);
 
   std::unique_ptr<Server> localhost = MakeServer("localhost", port);
-  SwimClient client(0, *localhost);
+  SwimClient client(::utils::Hostname(), 0, *localhost);
 
   EXPECT_FALSE(server_->isRunning());
   ASSERT_NO_FATAL_FAILURE(runServer()) << "Could not get the server started";
@@ -169,7 +171,7 @@ TEST_F(SwimServerTests, canOverrideOnUpdate) {
   ASSERT_TRUE(server.isRunning());
 
   auto dest = MakeServer("localhost", port);
-  SwimClient client(0, *dest);
+  SwimClient client(::utils::Hostname(), 0, *dest);
   ASSERT_TRUE(client.Ping());
   ASSERT_TRUE(server.wasUpdated());
 
@@ -186,7 +188,8 @@ TEST_F(SwimServerTests, destructorStopsServer) {
   unsigned short port = 55234;
 
   auto server = MakeServer("localhost", port);
-  std::unique_ptr<SwimClient> client(new SwimClient(0, *server));
+  std::unique_ptr<SwimClient> client(
+      new SwimClient(::utils::Hostname(), 0, *server));
   {
     TestServer testServer(port);
     std::thread t([&] { testServer.start(); });
@@ -206,7 +209,7 @@ TEST_F(SwimServerTests, receiveReport) {
   ASSERT_NO_FATAL_FAILURE(runServer()) << "Could not get the server started";
   ASSERT_TRUE(server_->isRunning());
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(0, *svr, 9200);
+  SwimClient client(::utils::Hostname(), 0, *svr, 9200);
 
   SwimReport report;
 
@@ -239,7 +242,7 @@ TEST_F(SwimServerTests, receiveReportMany) {
   ASSERT_NO_FATAL_FAILURE(runServer()) << "Could not get the server started";
   ASSERT_TRUE(server_->isRunning());
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(0, *svr, 9200);
+  SwimClient client(::utils::Hostname(), 0, *svr, 9200);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -278,7 +281,7 @@ TEST_F(SwimServerTests, reportAliveIncarnation) {
   ASSERT_TRUE(server_->isRunning());
 
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(0, *svr, 9200);
+  SwimClient client(::utils::Hostname(), 0, *svr, 9200);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -311,7 +314,7 @@ TEST_F(SwimServerTests, reportSuspectedIncarnation) {
   ASSERT_TRUE(server_->isRunning());
 
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(0, *svr, 9200);
+  SwimClient client(::utils::Hostname(), 0, *svr, 9200);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -344,7 +347,7 @@ TEST_F(SwimServerTests, reconcileReports) {
   ASSERT_TRUE(server_->isRunning());
 
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(0, *svr, 9200);
+  SwimClient client(::utils::Hostname(), 0, *svr, 9200);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -380,7 +383,7 @@ TEST_F(SwimServerTests, reconcileReports) {
 
   ASSERT_EQ(2, aliveReceivedCount);
   ASSERT_EQ(1, suspectReceivedCount);
-  ASSERT_EQ(1, suspectRemovedCount);
+  ASSERT_EQ(0, suspectRemovedCount);
 }
 
 TEST_F(SwimServerTests, ignoreStaleReports) {
@@ -388,7 +391,7 @@ TEST_F(SwimServerTests, ignoreStaleReports) {
   ASSERT_TRUE(server_->isRunning());
 
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(0, *svr, 9200);
+  SwimClient client(::utils::Hostname(), 0, *svr, 9200);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -431,7 +434,7 @@ TEST_F(SwimServerTests, ignoreStaleReports2) {
   ASSERT_TRUE(server_->isRunning());
 
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(0, *svr, 9200);
+  SwimClient client(::utils::Hostname(), 0, *svr, 9200);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -475,7 +478,7 @@ TEST_F(SwimServerTests, servesPingRequests) {
   ASSERT_TRUE(server_->isRunning());
 
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(0, *svr, 9200);
+  SwimClient client(::utils::Hostname(), 0, *svr, 9200);
 
   auto other = MakeServer("fakeserver", 9098);
 
@@ -507,7 +510,7 @@ TEST_F(SwimServerTests, canRestart) {
 
   ASSERT_TRUE(server_->isRunning());
   auto svr = MakeServer("localhost", server_->port());
-  SwimClient client(0, *svr);
+  SwimClient client(::utils::Hostname(), 0, *svr);
   ASSERT_TRUE(client.Ping());
 
   server_->stop();
@@ -529,7 +532,7 @@ TEST_F(SwimServerTests, testBudget) {
 
   auto svr = MakeServer(server_->self().hostname(), server_->port());
 
-  SwimClient client(0, *svr, 33456);
+  SwimClient client(::utils::Hostname(), 0, *svr, 33456);
 
   SwimReport report;
   report.mutable_sender()->CopyFrom(client.self());
@@ -558,7 +561,7 @@ TEST(SwimProtocolTests, testForwarding) {
   int senderAliveReceivedCount = 0;
   int senderSuspectReceivedCount = 0;
   int senderRemovedReceivedCount = 0;
-  SwimServer sender(sender_port,
+  SwimServer sender(::utils::Hostname(), sender_port,
                     [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
                       if (ServerStatus::alive == status) {
                         senderAliveReceivedCount++;
@@ -576,7 +579,7 @@ TEST(SwimProtocolTests, testForwarding) {
   int forwarderAliveReceivedCount = 0;
   int forwarderSuspectReceivedCount = 0;
   int forwarderRemovedReceivedCount = 0;
-  SwimServer forwarder(forwarder_port,
+  SwimServer forwarder(::utils::Hostname(), forwarder_port,
                        [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
                          if (ServerStatus::alive == status) {
                            forwarderAliveReceivedCount++;
@@ -594,7 +597,7 @@ TEST(SwimProtocolTests, testForwarding) {
   int suspectedAliveReceivedCount = 0;
   int suspectedSuspectReceivedCount = 0;
   int suspectedRemovedReceivedCount = 0;
-  SwimServer suspected(suspected_port,
+  SwimServer suspected(::utils::Hostname(), suspected_port,
                        [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
                          if (ServerStatus::alive == status) {
                            suspectedAliveReceivedCount++;
@@ -640,7 +643,7 @@ TEST(SwimProtocolTests, testForwarding) {
   ASSERT_EQ(0, suspectedSuspectReceivedCount);
   ASSERT_EQ(0, suspectedRemovedReceivedCount);
 
-  SwimClient client(0, forwarder.self(), sender_port);
+  SwimClient client(::utils::Hostname(), 0, forwarder.self(), sender_port);
   ASSERT_TRUE(client.RequestPing(dest));
 
   ASSERT_EQ(0, senderAliveReceivedCount);
@@ -666,7 +669,7 @@ TEST(SwimProtocolTests, testForwarding) {
 
   ASSERT_EQ(1, senderAliveReceivedCount);
   ASSERT_EQ(1, senderSuspectReceivedCount);
-  ASSERT_EQ(1, senderRemovedReceivedCount);
+  ASSERT_EQ(0, senderRemovedReceivedCount);
 
   ASSERT_EQ(1, forwarderAliveReceivedCount);
   ASSERT_EQ(0, forwarderSuspectReceivedCount);
@@ -685,7 +688,7 @@ TEST(SwimProtocolTests, testForwardingStaysSuspected) {
   int senderAliveReceivedCount = 0;
   int senderSuspectReceivedCount = 0;
   int senderRemovedReceivedCount = 0;
-  SwimServer sender(sender_port,
+  SwimServer sender(::utils::Hostname(), sender_port,
                     [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
                       if (ServerStatus::alive == status) {
                         senderAliveReceivedCount++;
@@ -703,7 +706,7 @@ TEST(SwimProtocolTests, testForwardingStaysSuspected) {
   int forwarderAliveReceivedCount = 0;
   int forwarderSuspectReceivedCount = 0;
   int forwarderRemovedReceivedCount = 0;
-  SwimServer forwarder(forwarder_port,
+  SwimServer forwarder(::utils::Hostname(), forwarder_port,
                        [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
                          if (ServerStatus::alive == status) {
                            forwarderAliveReceivedCount++;
@@ -721,7 +724,7 @@ TEST(SwimProtocolTests, testForwardingStaysSuspected) {
   int suspectedAliveReceivedCount = 0;
   int suspectedSuspectReceivedCount = 0;
   int suspectedRemovedReceivedCount = 0;
-  SwimServer suspected(suspected_port,
+  SwimServer suspected(::utils::Hostname(), suspected_port,
                        [&](std::shared_ptr<ServerRecord>, ServerStatus status) {
                          if (ServerStatus::alive == status) {
                            suspectedAliveReceivedCount++;
@@ -768,7 +771,7 @@ TEST(SwimProtocolTests, testForwardingStaysSuspected) {
   ASSERT_EQ(1, report.suspected_size());
   ASSERT_EQ(suspected.self(), report.suspected(0).server());
 
-  SwimClient client(0, forwarder.self(), sender_port);
+  SwimClient client(::utils::Hostname(), 0, forwarder.self(), sender_port);
   ASSERT_TRUE(client.RequestPing(dest));
 
   ASSERT_EQ(0, senderAliveReceivedCount);

@@ -21,7 +21,7 @@ using ::testing::IsSubsetOf;
 // Simple implementation of factory method.
 namespace swim {
 std::unique_ptr<SwimServer> CreateServer(unsigned short port) {
-  return std::unique_ptr<SwimServer>(new SwimServer(port));
+  return std::unique_ptr<SwimServer>(new SwimServer(::utils::Hostname(), port));
 }
 } // namespace swim
 
@@ -75,6 +75,7 @@ protected:
     suspectRemovedCount = 0;
 
     detector_.reset(new GossipFailureDetector(
+        ::utils::Hostname(),
         [this](std::shared_ptr<ServerRecord>, ServerStatus status) {
           if (ServerStatus::alive == status) {
             aliveReceivedCount++;
@@ -102,7 +103,8 @@ TEST_F(GossipFailureDetectorTests, getUniqueNeighborsRoundRobin) {
   ASSERT_TRUE(server.alive_empty());
   for (int i = 0; i < 10; ++i) {
     SwimClient client(
-        0, *MakeServer("localhost", detector_->gossip_server().port()),
+        ::utils::Hostname(), 0,
+        *MakeServer("localhost", detector_->gossip_server().port()),
         tests::RandomPort());
     ASSERT_TRUE(client.Ping());
   }
@@ -125,8 +127,9 @@ TEST_F(GossipFailureDetectorTests, getUniqueNeighborsRoundRobin) {
 
 TEST_F(GossipFailureDetectorTests, updatesAlives) {
 
-  SwimClient client(
-      0, *MakeServer("localhost", detector_->gossip_server().port()), 9000);
+  SwimClient client(::utils::Hostname(), 0,
+                    *MakeServer("localhost", detector_->gossip_server().port()),
+                    9000);
 
   ASSERT_TRUE(tests::WaitAtMostFor(
       [&]() -> bool { return detector_->gossip_server().isRunning(); },
@@ -154,7 +157,8 @@ TEST_F(GossipFailureDetectorTests, updatesManyAlives) {
   ASSERT_TRUE(server.alive_empty());
   for (int i = 0; i < 10; ++i) {
     SwimClient client(
-        0, *MakeServer("localhost", detector_->gossip_server().port()),
+        ::utils::Hostname(), 0,
+        *MakeServer("localhost", detector_->gossip_server().port()),
         tests::RandomPort());
     ASSERT_TRUE(client.Ping());
   }
@@ -176,7 +180,7 @@ TEST_F(GossipFailureDetectorTests, create) {
 
   // Adding twice the same server will have no effect.
   detector_->AddNeighbor(h1);
-  ASSERT_EQ(1, server.alive_size());
+  ASSERT_EQ(1, server.suspected_size());
 
   // Obviously, a different object makes no difference.
   Server h1_alias;
@@ -186,10 +190,10 @@ TEST_F(GossipFailureDetectorTests, create) {
 
   // Still one server in the set.
   detector_->AddNeighbor(h1_alias);
-  ASSERT_EQ(1, server.alive_size());
+  ASSERT_EQ(1, server.suspected_size());
 
-  ASSERT_EQ(1, aliveReceivedCount);
-  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, aliveReceivedCount);
+  ASSERT_EQ(1, suspectReceivedCount);
   ASSERT_EQ(0, suspectRemovedCount);
 
   // However, a different port is regarded as a different server: note
@@ -200,10 +204,10 @@ TEST_F(GossipFailureDetectorTests, create) {
   h1_other.set_port(8090);
   detector_->AddNeighbor(h1_other);
 
-  ASSERT_EQ(2, server.alive_size());
+  ASSERT_EQ(2, server.suspected_size());
 
-  ASSERT_EQ(2, aliveReceivedCount);
-  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, aliveReceivedCount);
+  ASSERT_EQ(2, suspectReceivedCount);
   ASSERT_EQ(0, suspectRemovedCount);
 }
 
@@ -217,18 +221,18 @@ TEST_F(GossipFailureDetectorTests, addNeighbors) {
   detector_->AddNeighbor(*host1);
   detector_->AddNeighbor(*host2);
 
-  ASSERT_EQ(2, server.alive_size());
+  ASSERT_EQ(2, server.suspected_size());
 
-  ASSERT_EQ(2, aliveReceivedCount);
-  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, aliveReceivedCount);
+  ASSERT_EQ(2, suspectReceivedCount);
   ASSERT_EQ(0, suspectRemovedCount);
 
   std::shared_ptr<Server> server3 = MakeServer("another.example.com", 4456);
   detector_->AddNeighbor(*server3);
-  ASSERT_EQ(3, server.alive_size());
+  ASSERT_EQ(3, server.suspected_size());
 
-  ASSERT_EQ(3, aliveReceivedCount);
-  ASSERT_EQ(0, suspectReceivedCount);
+  ASSERT_EQ(0, aliveReceivedCount);
+  ASSERT_EQ(3, suspectReceivedCount);
   ASSERT_EQ(0, suspectRemovedCount);
 }
 

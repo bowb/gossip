@@ -15,11 +15,14 @@ namespace swim {
 
 std::default_random_engine random_engine{};
 
-SwimClient::SwimClient(const LamportTime time, const Server &dest,
-                       int self_port, std::chrono::milliseconds timeout)
+SwimClient::SwimClient(const std::string &hostname, const LamportTime time,
+                       const Server &dest, int self_port,
+                       std::chrono::milliseconds timeout)
     : lamport_time_(time), dest_(dest), timeout_(timeout) {
-  self_.set_hostname(utils::Hostname());
+  auto hname = hostname.size() == 0 ? utils::Hostname() : hostname;
+  self_.set_hostname(hname);
   self_.set_port(self_port);
+  self_.set_ip_addr(utils::InetAddress(hname));
 }
 
 bool SwimClient::Ping() {

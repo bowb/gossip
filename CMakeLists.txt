@@ -115,7 +115,7 @@ include_directories(BEFORE ${INCLUDE_DIR} ${CMAKE_BINARY_DIR}/gen
                     ${PROTO_GEN_DIR} ${CMAKE_BINARY_DIR})
 
 add_library(SWIM_UTILS-lib STATIC ${SOURCE_DIR}/utils/utils.cpp)
-target_link_libraries(SWIM_UTILS-lib Boost::Boost glog::glog date::date)
+target_link_libraries(SWIM_UTILS-lib Boost::headers glog::glog date::date)
 
 set(SWIM_SOURCES
     ${SOURCE_DIR}/swim/SwimClient.cpp ${SOURCE_DIR}/swim/SwimServer.cpp

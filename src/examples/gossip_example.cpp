@@ -38,9 +38,15 @@ const unsigned short kDefaultHttpPort = 30396;
 } // namespace
 
 std::shared_ptr<GossipFailureDetector> detector;
+std::shared_ptr<api::rest::ApiServer> apiServer;
 
 void shutdown(int signum) {
   LOG(INFO) << "Terminating server...";
+
+  if (apiServer) {
+    apiServer.reset();
+  }
+
   if (detector) {
     detector->StopAllBackgroundThreads();
   }
@@ -51,8 +57,6 @@ void shutdown(int signum) {
 int main(int argc, const char *argv[]) {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
   google::InitGoogleLogging(argv[0]);
-
-  std::shared_ptr<api::rest::ApiServer> apiServer;
 
   po::options_description opts{std::string{PROG_NAME} + " options"};
 
@@ -65,6 +69,7 @@ int main(int argc, const char *argv[]) {
   auto seeds_list = std::vector<std::string>{};
   auto cors = std::string{};
   auto no_http = true;
+  auto host_name = utils::Hostname();
   // clang-format off
   opts.add_options()
     ("debug", "verbose output (LOG_v = 2)")
@@ -95,6 +100,7 @@ int main(int argc, const char *argv[]) {
       "node1.example.com:9999 node1.example.com:9999\n"
       "Both host and port are require; the hosts may not ALL be active.")
     ("cors", po::value<std::string>(&cors))
+    ("host_name", po::value<std::string>(&host_name), "The name of this server")
     ;
   // clang-format on
 
@@ -167,7 +173,8 @@ int main(int argc, const char *argv[]) {
   try {
 
     detector = std::make_shared<GossipFailureDetector>(
-        std::nullopt, port, std::chrono::milliseconds{ping_interval_msec},
+        host_name, std::nullopt, port,
+        std::chrono::milliseconds{ping_interval_msec},
         std::chrono::milliseconds{grace_period_msec},
         std::chrono::milliseconds{ping_timeout_msec});
 
@@ -297,6 +304,7 @@ int main(int argc, const char *argv[]) {
     while (true) {
       std::this_thread::sleep_for(milliseconds(300));
     }
+
   } catch (::utils::parse_error &error) {
     LOG(ERROR) << "A parsing error occurred: " << error.what();
     return EXIT_FAILURE;

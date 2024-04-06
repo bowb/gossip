@@ -159,6 +159,7 @@ std::string InetAddress(const std::string &host) {
   if (result != nullptr) {
     freeaddrinfo(result);
   }
+
   return retval;
 }
 

@@ -61,8 +61,10 @@ public:
    * here.
    * @param timeout an optional timeout, in milliseconds.
    */
-  SwimClient(const LamportTime time, const Server &dest, int self_port = 0,
-             std::chrono::milliseconds timeout = swim::kDefaultTimeoutMsec);
+  explicit SwimClient(
+      const std::string &host_name, const LamportTime time, const Server &dest,
+      int self_port = 0,
+      std::chrono::milliseconds timeout = swim::kDefaultTimeoutMsec);
 
   virtual ~SwimClient() {}
 
