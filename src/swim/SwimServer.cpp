@@ -11,6 +11,20 @@ using namespace zmq;
 
 namespace swim {
 
+SwimServer::~SwimServer() {
+  int retry_count = 5;
+
+  stop();
+  while (isRunning() && retry_count-- > 0) {
+    VLOG(2) << "Waiting for server to stop...";
+    std::this_thread::sleep_for(std::chrono::milliseconds(polling_interval_));
+  }
+  if (retry_count == 0) {
+    LOG(ERROR) << "Timed out waiting for server to shut down; giving up.";
+  }
+  VLOG(2) << "Server shutdown complete";
+}
+
 void SwimServer::start() {
 
   VLOG(2) << "Starting SwimServer...";

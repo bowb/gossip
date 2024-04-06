@@ -5,7 +5,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <glog/logging.h>
 #include <iomanip>
 #include <memory>
 #include <mutex>
@@ -151,19 +150,7 @@ public:
       : port_(port), num_threads_(threads), stopped_(true),
         polling_interval_(polling_interval), statusCb(statusCb) {}
 
-  virtual ~SwimServer() {
-    int retry_count = 5;
-
-    stop();
-    while (isRunning() && retry_count-- > 0) {
-      VLOG(2) << "Waiting for server to stop...";
-      std::this_thread::sleep_for(std::chrono::milliseconds(polling_interval_));
-    }
-    if (retry_count == 0) {
-      LOG(ERROR) << "Timed out waiting for server to shut down; giving up.";
-    }
-    VLOG(2) << "Server shutdown complete";
-  }
+  virtual ~SwimServer();
 
   /**
    * Run the server forever until `stop()` is called.
@@ -245,7 +232,7 @@ public:
    * suspected; defaults to `now()`
    * @return whether adding `server` to the `suspected_` set was successful
    */
-  bool ReportSuspected(const Server &server, google::uint64 timestamp);
+  bool ReportSuspected(const Server &server, uint64_t timestamp);
 
   /**
    * Use this for either a newly discovered neighbor, or for a `suspected_`
@@ -257,7 +244,7 @@ public:
    * suspected; defaults to `now()`
    * @return whether adding `server` to `alive_` set was successful
    */
-  bool AddAlive(const Server &server, google::uint64 timestamp);
+  bool AddAlive(const Server &server, uint64_t timestamp);
 
   /**
    * Removes the given server from the suspected set, thus marking it as
