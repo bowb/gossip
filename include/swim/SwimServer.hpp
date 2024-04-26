@@ -100,15 +100,6 @@ class SwimServer {
       SwimReport &report, std::vector<ServerRecord> &records,
       const ReportSelector &which = ReportSelector::kAlive) const;
 
-  /**
-   * @brief update the local lamport time when an event is processed
-   *
-   * @param time
-   */
-  void UpdateLamportTime(const LamportTime time) {
-    lamport_time_ = (std::max(lamport_time_.load(), time) + 1);
-  }
-
 protected:
   /**
    * Invoked when the `client` sends a `SwimEnvelope::Type::STATUS_UPDATE`
@@ -293,6 +284,15 @@ public:
    * @param server to remove from the set
    */
   void RemoveSuspected(const Server &, const RemoveType removeTypte);
+
+  /**
+   * @brief update the local lamport time when an event is processed
+   *
+   * @param time
+   */
+  void UpdateLamportTime(const LamportTime time) {
+    lamport_time_ = (std::max(lamport_time_.load(), time) + 1);
+  }
 
   LamportTime GetLamportTime() const { return lamport_time_.load(); }
 };
